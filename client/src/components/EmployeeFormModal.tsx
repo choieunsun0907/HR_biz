@@ -42,6 +42,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { loadPolicy, calcLeaveByPolicy, formatTenure } from "@/lib/leavePolicy";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -323,6 +324,19 @@ function Step2({
   errors: Partial<Record<keyof EmployeeFormData, string>>;
   onChange: (field: keyof EmployeeFormData, value: string) => void;
 }) {
+  // 입사일 변경 시 연차 자동 계산
+  const autoCalc = form.joinDate
+    ? calcLeaveByPolicy(form.joinDate, loadPolicy())
+    : null;
+
+  const handleJoinDateChange = (val: string) => {
+    onChange("joinDate", val);
+    if (val) {
+      const result = calcLeaveByPolicy(val, loadPolicy());
+      onChange("leaveTotal", String(result.days));
+    }
+  };
+
   return (
     <div className="space-y-4">
       {/* 이메일 */}
@@ -388,7 +402,7 @@ function Step2({
           <input
             type="date"
             value={form.joinDate}
-            onChange={(e) => onChange("joinDate", e.target.value)}
+            onChange={(e) => handleJoinDateChange(e.target.value)}
             className={cn(
               "w-full px-3 py-2.5 text-sm border rounded-xl outline-none transition-all",
               "focus:ring-2 focus:ring-[var(--teal)]/30",
@@ -396,6 +410,14 @@ function Step2({
             )}
           />
           <FieldError msg={errors.joinDate} />
+          {autoCalc && (
+            <div className="flex items-center gap-1.5 mt-1.5 px-2 py-1.5 bg-[var(--teal-light)] rounded-lg border border-[var(--teal)]/20">
+              <span className="text-[10px] text-[var(--teal-dark)] font-medium">
+                근속 {formatTenure(autoCalc.tenureYears, autoCalc.tenureMonths)} →
+                <span className="font-bold ml-1">{autoCalc.days}일 자동 계산됨</span>
+              </span>
+            </div>
+          )}
         </div>
         <div>
           <label className="block text-sm font-medium text-foreground mb-1.5">
@@ -442,7 +464,7 @@ function Step2({
             )}
           />
           <FieldError msg={errors.leaveTotal} />
-          <p className="text-[10px] text-muted-foreground mt-1">입사 기준 부여 연차 총일수</p>
+          <p className="text-[10px] text-muted-foreground mt-1">입사일 선택 시 정책 기준 자동 계산 • 직접 수정 가능</p>
         </div>
       </div>
     </div>
