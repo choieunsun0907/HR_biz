@@ -58,7 +58,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const [location] = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  const activeRoutes = ["/", "/attendance", "/community", "/employees"];
+  const activeRoutes = ["/", "/attendance", "/community", "/employees", "/org-chart", "/reports", "/settings"];
   const isActive = (href: string) => {
     if (href === "/") return location === "/";
     return location.startsWith(href);
