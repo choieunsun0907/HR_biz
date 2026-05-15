@@ -1,0 +1,35 @@
+{
+  "build_command": "pnpm run build",
+  "capabilities": [],
+  "dev_command": "pnpm run dev",
+  "env_vars": {},
+  "experiments": null,
+  "git_remote": {
+    "repo_url": "s3://vida-prod-gitrepo/webdev-git/310519663034300302/Dxy8osoNhSuWMjC3FhR7X2",
+    "access_key_id": "ASIAZV3A2ECZDC7G2RB4",
+    "secret_access_key": "YeVMcXun5L9MtPByV5ZNg6BLJD0TsG8cpSF+ONUx",
+    "session_token": "IQoJb3JpZ2luX2VjEKH//////////wEaCXVzLWVhc3QtMSJGMEQCICLj/lfhU/p0u98zh2VrG9BqB7lBXNIxMD+it3RwIz5eAiAfplo8MrGn8T3t0/QF0kLqEhIBM/JFJ07xmEuujNNVgSr2AwhqEAQaDDY2NTM4NjA5ODg2NiIMtMOCUL6mZNksPR+vKtMDlG0NPsU4/uZA7RZz9oAGQBj+oyy7pVCZaPrwyayXEUcKRotDP02GCeEoVQV454btH7RGW1W2fqgE6D0wpspL8azhOTa901/P1E4to1JVV99PYDMgTNogMGmHBcwsxqlGxzsoblNR1sbaS/jO8JSL/zkdmRaXYuikTElgYpFVS2sJ5qs1OIOWgIN2kIjjL4OgDzSO0qw6cudxV41N6hHFQu2zSdhys/vwoGXVkp5P/iKNUeDip5EKzxC7OBFRrKBm2N4/tgqEmIPN/tRH5Mrd1r5Nhygzg9g00rG47WMmrMW8S/AtUH5PoNn0/mHKNX1IS3LpHIUOXjmXGn0vGgIJT51QiOxv6Dxh5Oj4QNFRLyR/01sI8RLSQ4xo2fHGWI02TB+mY4MQll7pr5C2jdesWDoDe23nWsljStuqK1N97bDru3F6l0XncXmNNUjIStgfnn+FpNykwGvblAnSOng9IFIsIy0pAgR0h+Or+MQ7fBZiKvzgP+lMJlMzEgKISiXnwX+zJqIyPbuNzLZu7ugDysCcQy/+L4w0NVuYt92vSaVxo5JJNXGxH2v7TyJO4qxL6sRJQ51IkQt8bg2TWra1yReHj5amc+rmdILtJgTNwhRCoXYwuNyZ0AY6ngGYkqtjYDUR42+Lt1ioQn/WiaDspTre/CqT+vg6k3Ypf4SViNdr70nAIKdU90oI9Hw3tSap0zWLQ8Ucmq1N/gdC9AhaMkmO/o6RJL9QOeSBlWwc7G9Rm7KKaRth3srwGe+GkgeWw0Ct/1Z5Mg8VnlUDX07hDVdBH8nU6ijzq4sujhRm5oSvCNyL8Dah09eoAXijELjU9Zr3UpyItn7w8g==",
+    "expiration": "2026-05-15T12:52:08.000Z"
+  },
+  "name": "teampulse",
+  "path": "/home/ubuntu/teampulse",
+  "port": 3000,
+  "secrets": {
+    "BUILT_IN_FORGE_API_KEY": "TcxDffEkoWxc8EWATEWDJq",
+    "BUILT_IN_FORGE_API_URL": "https://forge.manus.ai",
+    "JWT_SECRET": "cPEqCrdexe3v66gV8niaui",
+    "OAUTH_SERVER_URL": "https://api.manus.im",
+    "OWNER_NAME": "싸카맨TV",
+    "OWNER_OPEN_ID": "FYGwjtEJieN9rR7fSoWWjo",
+    "VITE_ANALYTICS_ENDPOINT": "https://manus-analytics.com",
+    "VITE_ANALYTICS_WEBSITE_ID": "08362c53-0ee5-4301-b056-e038fba17979",
+    "VITE_APP_ID": "Dxy8osoNhSuWMjC3FhR7X2",
+    "VITE_APP_LOGO": "",
+    "VITE_APP_TITLE": "TeamPulse - HR Management Platform",
+    "VITE_FRONTEND_FORGE_API_KEY": "eK4rhEc7uagrm9uasT4ydj",
+    "VITE_FRONTEND_FORGE_API_URL": "https://forge.manus.ai",
+    "VITE_OAUTH_PORTAL_URL": "https://manus.im"
+  },
+  "template_id": "web-static",
+  "test_command": "pnpm test"
+}
