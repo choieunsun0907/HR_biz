@@ -32,7 +32,19 @@ import {
   Building2,
   CheckCircle2,
   Pencil,
+  CalendarPlus,
+  Minus,
+  Plus,
+  Users,
 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -645,6 +657,62 @@ export default function EmployeesPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Partial<EmployeeFormData> | null>(null);
 
+  // Bulk leave state
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [bulkLeaveOpen, setBulkLeaveOpen] = useState(false);
+  const [bulkLeaveMode, setBulkLeaveMode] = useState<"add" | "set">("add");
+  const [bulkLeaveAmount, setBulkLeaveAmount] = useState(1);
+  const [bulkApplying, setBulkApplying] = useState(false);
+
+  const toggleSelect = (id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (allFilteredSelected) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        filtered.forEach((e) => next.delete(e.id));
+        return next;
+      });
+    } else {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        filtered.forEach((e) => next.add(e.id));
+        return next;
+      });
+    }
+  };
+
+  const clearSelection = () => setSelectedIds(new Set());
+
+  const handleBulkLeaveApply = () => {
+    setBulkApplying(true);
+    setTimeout(() => {
+      setEmployees((prev) =>
+        prev.map((e) => {
+          if (!selectedIds.has(e.id)) return e;
+          if (bulkLeaveMode === "add") {
+            return { ...e, leaveBalance: e.leaveBalance + bulkLeaveAmount };
+          } else {
+            return { ...e, leaveBalance: bulkLeaveAmount };
+          }
+        })
+      );
+      const modeLabel = bulkLeaveMode === "add" ? `+${bulkLeaveAmount}일 추가` : `${bulkLeaveAmount}일로 설정`;
+      toast.success(`연차 일괄 부여 완료`, {
+        description: `${selectedIds.size}명에게 연차 ${modeLabel}`,
+      });
+      setBulkApplying(false);
+      setBulkLeaveOpen(false);
+      clearSelection();
+    }, 600);
+  };
+
   const filtered = useMemo(() => {
     return employees.filter((e) => {
       const q = query.toLowerCase();
@@ -660,6 +728,9 @@ export default function EmployeesPage() {
       return matchQuery && matchDept && matchStatus && matchGrade;
     });
   }, [employees, query, deptFilter, statusFilter, gradeFilter]);
+
+  const allFilteredSelected = filtered.length > 0 && filtered.every((e) => selectedIds.has(e.id));
+  const someFilteredSelected = filtered.some((e) => selectedIds.has(e.id)) && !allFilteredSelected;
 
   const activeFilters = [deptFilter, statusFilter, gradeFilter].filter((f) => f !== "전체").length;
 
@@ -788,6 +859,31 @@ export default function EmployeesPage() {
               </p>
             </div>
             <div className="flex items-center gap-2">
+              {selectedIds.size > 0 && (
+                <>
+                  <span className="text-xs text-muted-foreground">
+                    <span className="font-semibold text-foreground mono-num">{selectedIds.size}</span>명 선택됨
+                  </span>
+                  <Button
+                    size="sm"
+                    className="gap-1.5 rounded-xl text-xs text-white"
+                    style={{ background: "var(--coral)" }}
+                    onClick={() => { setBulkLeaveAmount(1); setBulkLeaveMode("add"); setBulkLeaveOpen(true); }}
+                  >
+                    <CalendarPlus size={13} />
+                    연차 일괄 부여
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 rounded-xl text-xs"
+                    onClick={clearSelection}
+                  >
+                    <X size={13} />
+                    선택 해제
+                  </Button>
+                </>
+              )}
               <Button
                 variant="outline"
                 size="sm"
@@ -869,6 +965,25 @@ export default function EmployeesPage() {
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto px-5 lg:px-7 py-5">
+          {/* 카드 뷰 선택 안내 */}
+          {viewMode === "card" && filtered.length > 0 && (
+            <div className="flex items-center gap-3 mb-3 px-1">
+              <Checkbox
+                checked={allFilteredSelected ? true : someFilteredSelected ? "indeterminate" : false}
+                onCheckedChange={toggleSelectAll}
+                className="rounded-md"
+              />
+              <span className="text-xs text-muted-foreground">
+                {allFilteredSelected ? "전체 선택 해제" : "전체 선택"}
+              </span>
+              {selectedIds.size > 0 && (
+                <span className="text-xs text-[var(--coral)] font-medium">
+                  {selectedIds.size}명 선택
+                </span>
+              )}
+            </div>
+          )}
+
           {filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-center">
               <Search size={40} className="text-muted-foreground/30 mb-3" />
@@ -892,12 +1007,31 @@ export default function EmployeesPage() {
           ) : viewMode === "card" ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 stagger">
               {filtered.map((emp) => (
-                <EmployeeCard
-                  key={emp.id}
-                  emp={emp}
-                  onClick={() => handleSelectEmp(emp)}
-                  selected={selectedEmp?.id === emp.id}
-                />
+                <div key={emp.id} className="relative">
+                  {/* 체크박스 오버레이 */}
+                  <div
+                    className="absolute top-3 left-3 z-10"
+                    onClick={(e) => { e.stopPropagation(); toggleSelect(emp.id); }}
+                  >
+                    <Checkbox
+                      checked={selectedIds.has(emp.id)}
+                      onCheckedChange={() => toggleSelect(emp.id)}
+                      className="rounded-md bg-white/90 shadow-sm"
+                    />
+                  </div>
+                  <div
+                    className={cn(
+                      "transition-all duration-150",
+                      selectedIds.has(emp.id) && "ring-2 ring-[var(--coral)] ring-offset-1 rounded-2xl"
+                    )}
+                  >
+                    <EmployeeCard
+                      emp={emp}
+                      onClick={() => handleSelectEmp(emp)}
+                      selected={selectedEmp?.id === emp.id}
+                    />
+                  </div>
+                </div>
               ))}
             </div>
           ) : (
@@ -905,6 +1039,13 @@ export default function EmployeesPage() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-border">
+                    <th className="px-4 py-3 w-10">
+                      <Checkbox
+                        checked={allFilteredSelected ? true : someFilteredSelected ? "indeterminate" : false}
+                        onCheckedChange={toggleSelectAll}
+                        className="rounded-md"
+                      />
+                    </th>
                     {["직원", "부서 · 직급", "재직 상태", "입사일", "출석률", "참여 점수", "연차 잔여", ""].map((h) => (
                       <th
                         key={h}
@@ -921,10 +1062,18 @@ export default function EmployeesPage() {
                       key={emp.id}
                       className={cn(
                         "hover:bg-muted/30 transition-colors cursor-pointer",
-                        selectedEmp?.id === emp.id && "bg-[var(--teal-light)]"
+                        selectedEmp?.id === emp.id && "bg-[var(--teal-light)]",
+                        selectedIds.has(emp.id) && "bg-orange-50/60"
                       )}
                       onClick={() => handleSelectEmp(emp)}
                     >
+                      <td className="px-4 py-3" onClick={(e) => { e.stopPropagation(); toggleSelect(emp.id); }}>
+                        <Checkbox
+                          checked={selectedIds.has(emp.id)}
+                          onCheckedChange={() => toggleSelect(emp.id)}
+                          className="rounded-md"
+                        />
+                      </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-3">
                           <Avatar className="w-8 h-8 shrink-0">
@@ -1034,6 +1183,125 @@ export default function EmployeesPage() {
         onSubmit={handleFormSubmit}
         initialData={editTarget}
       />
+
+      {/* Bulk Leave Modal */}
+      <Dialog open={bulkLeaveOpen} onOpenChange={(v) => !v && setBulkLeaveOpen(false)}>
+        <DialogContent className="max-w-sm rounded-2xl p-0 overflow-hidden gap-0">
+          <DialogHeader className="px-6 pt-6 pb-4 border-b border-border">
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <CalendarPlus size={18} className="text-[var(--coral)]" />
+              연차 일괄 부여
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="px-6 py-5 space-y-5">
+            {/* 대상 직원 요약 */}
+            <div className="flex items-center gap-3 p-3 bg-orange-50 rounded-xl border border-orange-100">
+              <Users size={16} className="text-[var(--coral)] shrink-0" />
+              <div>
+                <div className="text-sm font-semibold text-foreground">
+                  <span className="mono-num text-[var(--coral)]">{selectedIds.size}</span>명 선택됨
+                </div>
+                <div className="text-xs text-muted-foreground mt-0.5">
+                  {Array.from(selectedIds)
+                    .slice(0, 3)
+                    .map((id) => employees.find((e) => e.id === id)?.name)
+                    .filter(Boolean)
+                    .join(", ")}
+                  {selectedIds.size > 3 && ` 외 ${selectedIds.size - 3}명`}
+                </div>
+              </div>
+            </div>
+
+            {/* 부여 방식 */}
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-2">부여 방식</label>
+              <div className="grid grid-cols-2 gap-2">
+                {(["add", "set"] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    onClick={() => setBulkLeaveMode(mode)}
+                    className={cn(
+                      "py-2.5 px-3 rounded-xl text-sm font-medium border transition-all",
+                      bulkLeaveMode === mode
+                        ? "bg-[var(--coral)] text-white border-[var(--coral)]"
+                        : "bg-white text-muted-foreground border-border hover:border-[var(--coral)]/50"
+                    )}
+                  >
+                    {mode === "add" ? "+ 추가 부여" : "= 일괄 설정"}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-1.5">
+                {bulkLeaveMode === "add"
+                  ? "현재 잔여 연차에 입력한 일수를 더합니다"
+                  : "현재 잔여 연차를 입력한 일수로 덮어씁니다"}
+              </p>
+            </div>
+
+            {/* 일수 입력 */}
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-2">
+                {bulkLeaveMode === "add" ? "추가할 연차 일수" : "설정할 연차 일수"}
+              </label>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setBulkLeaveAmount((v) => Math.max(0, v - 1))}
+                  className="w-9 h-9 rounded-xl border border-border flex items-center justify-center hover:bg-muted transition-colors"
+                >
+                  <Minus size={14} />
+                </button>
+                <input
+                  type="number"
+                  min={0}
+                  max={365}
+                  value={bulkLeaveAmount}
+                  onChange={(e) => setBulkLeaveAmount(Math.max(0, Math.min(365, Number(e.target.value))))}
+                  className="flex-1 text-center text-2xl font-bold mono-num text-foreground border border-border rounded-xl py-2 outline-none focus:ring-2 focus:ring-[var(--coral)]/30"
+                />
+                <button
+                  onClick={() => setBulkLeaveAmount((v) => Math.min(365, v + 1))}
+                  className="w-9 h-9 rounded-xl border border-border flex items-center justify-center hover:bg-muted transition-colors"
+                >
+                  <Plus size={14} />
+                </button>
+              </div>
+              <p className="text-center text-xs text-muted-foreground mt-1.5">일 (0~365)</p>
+            </div>
+
+            {/* 미리보기 */}
+            {bulkLeaveMode === "add" && bulkLeaveAmount > 0 && (
+              <div className="p-3 bg-muted/40 rounded-xl text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">예시:</span> 잔여 연차 10일인 직원 →{" "}
+                <span className="font-bold text-[var(--teal-dark)] mono-num">{10 + bulkLeaveAmount}일</span>로 변경
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="px-6 pb-6 pt-0 flex gap-2">
+            <Button
+              variant="outline"
+              className="flex-1 rounded-xl"
+              onClick={() => setBulkLeaveOpen(false)}
+              disabled={bulkApplying}
+            >
+              취소
+            </Button>
+            <Button
+              className="flex-1 rounded-xl text-white gap-2"
+              style={{ background: "var(--coral)" }}
+              onClick={handleBulkLeaveApply}
+              disabled={bulkApplying}
+            >
+              {bulkApplying ? (
+                <><span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />적용 중...</>
+              ) : (
+                <><CalendarPlus size={14} />{selectedIds.size}명에게 적용</>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <style>{`
         @keyframes slideInRight {
