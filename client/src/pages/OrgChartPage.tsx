@@ -17,7 +17,7 @@ import {
   Maximize2, Users, Phone, Mail, MapPin, Calendar, Award,
   LayoutGrid, GitBranch, Building2, UserCheck, Edit3,
   CheckCircle2, RotateCcw, History, ArrowRight, AlertTriangle,
-  GripVertical,
+  GripVertical, Download, FileSpreadsheet, FileText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -640,6 +640,8 @@ export default function OrgChartPage() {
   // 드래그 상태
   const [draggingEmp, setDraggingEmp]     = useState<OrgEmployee | null>(null);
   const [pendingMove, setPendingMove]     = useState<{ emp: OrgEmployee; targetDept: Department } | null>(null);
+  const [exporting, setExporting]         = useState<"excel" | "pdf" | null>(null);
+  const treeRef = useRef<HTMLDivElement | null>(null);
 
   const CEO = employees.find(e => e.id === 0)!;
 
@@ -701,6 +703,145 @@ export default function OrgChartPage() {
       description: `직속 상관: ${targetHead.name} (${targetHead.title})`,
     });
   }, [pendingMove, employees, selectedEmp]);
+
+  // ─── 엑셀 내보내기 ────────────────────────────────────────────────────────
+  const handleDownloadExcel = useCallback(async () => {
+    setExporting("excel");
+    try {
+      const XLSX = await import("xlsx");
+      const wb = XLSX.utils.book_new();
+      const today = new Date().toLocaleDateString("ko-KR").replace(/\. /g, "-").replace(".", "");
+
+      // 시트1: 전체 직원 목록 (부서별 정렬)
+      const sorted = [...employees].sort((a, b) => a.dept.localeCompare(b.dept, "ko"));
+      const empRows = sorted.map((e, i) => {
+        const reportsToEmp = e.reportsTo !== null ? employees.find(x => x.id === e.reportsTo) : null;
+        const joinDate = new Date(e.joinDate);
+        const now = new Date();
+        const months = (now.getFullYear() - joinDate.getFullYear()) * 12 + (now.getMonth() - joinDate.getMonth());
+        const tenure = months >= 12 ? `${Math.floor(months / 12)}년 ${months % 12 > 0 ? `${months % 12}개월` : ""}` : `${months}개월`;
+        return {
+          "순번": i + 1,
+          "이름": e.name,
+          "부서": e.dept,
+          "팀": e.team,
+          "직책": e.title,
+          "직급": e.level,
+          "이메일": e.email,
+          "전화번호": e.phone,
+          "근무지": e.location,
+          "입사일": e.joinDate,
+          "근속기간": tenure,
+          "직속상관": reportsToEmp?.name ?? "(최상위)",
+          "스킬": e.skills.join(", "),
+          "참여점수": e.engagementScore,
+          "구분": e.isHead ? "팀장/본부장" : "팀원",
+        };
+      });
+      const ws1 = XLSX.utils.json_to_sheet(empRows);
+      ws1["!cols"] = [8,10,8,8,14,8,24,14,10,12,12,10,24,8,10].map(w => ({ wch: w }));
+      XLSX.utils.book_append_sheet(wb, ws1, "전체 직원 목록");
+
+      // 시트2: 부서별 요약
+      const deptSummary = DEPARTMENTS.map(d => {
+        const deptEmps = employees.filter(e => e.dept === d.name);
+        const head = employees.find(e => e.id === d.headId);
+        const avgScore = deptEmps.length > 0
+          ? Math.round(deptEmps.reduce((s, e) => s + e.engagementScore, 0) / deptEmps.length)
+          : 0;
+        return {
+          "부서명": d.name,
+          "부서장": head?.name ?? "-",
+          "부서장 직책": head?.title ?? "-",
+          "총 인원": deptEmps.length,
+          "팀원 수": deptEmps.filter(e => !e.isHead).length,
+          "평균 참여 점수": avgScore,
+        };
+      });
+      const ws2 = XLSX.utils.json_to_sheet(deptSummary);
+      ws2["!cols"] = [10, 10, 14, 8, 8, 12].map(w => ({ wch: w }));
+      XLSX.utils.book_append_sheet(wb, ws2, "부서별 요약");
+
+      // 시트3: 변경 이력
+      if (moveHistory.length > 0) {
+        const histRows = moveHistory.map((h, i) => ({
+          "순번": i + 1,
+          "직원명": h.empName,
+          "이전 부서": h.fromDept,
+          "이동 부서": h.toDept,
+          "변경 일시": h.timestamp.toLocaleString("ko-KR"),
+        }));
+        const ws3 = XLSX.utils.json_to_sheet(histRows);
+        ws3["!cols"] = [6, 10, 10, 10, 18].map(w => ({ wch: w }));
+        XLSX.utils.book_append_sheet(wb, ws3, "변경 이력");
+      }
+
+      XLSX.writeFile(wb, `조직도_${today}.xlsx`);
+      toast.success("엑셀 파일이 다운로드되었습니다", { description: `조직도_${today}.xlsx` });
+    } catch (e) {
+      toast.error("엑셀 내보내기에 실패했습니다");
+    } finally {
+      setExporting(null);
+    }
+  }, [employees, moveHistory]);
+
+  // ─── PDF 내보내기 ─────────────────────────────────────────────────────────
+  const handleDownloadPDF = useCallback(async () => {
+    if (!treeRef.current) {
+      toast.error("트리 뷰에서만 PDF 내보내기가 가능합니다");
+      return;
+    }
+    setExporting("pdf");
+    try {
+      const html2canvas = (await import("html2canvas")).default;
+      const jsPDF = (await import("jspdf")).default;
+      const today = new Date().toLocaleDateString("ko-KR").replace(/\. /g, "-").replace(".", "");
+
+      const canvas = await html2canvas(treeRef.current, {
+        scale: 1.5,
+        useCORS: true,
+        backgroundColor: "#f8fafb",
+        logging: false,
+      });
+
+      const imgW = canvas.width;
+      const imgH = canvas.height;
+      // A4 가로 기준 (mm)
+      const pdfW = 297;
+      const pdfH = Math.round((imgH / imgW) * pdfW);
+
+      const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: [pdfW, Math.max(pdfH, 210)] });
+
+      // 제목 헤더
+      pdf.setFillColor(13, 148, 136);
+      pdf.rect(0, 0, pdfW, 12, "F");
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFontSize(11);
+      pdf.setFont("helvetica", "bold");
+      pdf.text("싸카스포츠 조직도", 10, 8);
+      pdf.setFontSize(8);
+      pdf.setFont("helvetica", "normal");
+      pdf.text(`생성일: ${today}  |  총 인원: ${employees.length}명  |  부서: ${DEPARTMENTS.length}개`, pdfW - 10, 8, { align: "right" });
+
+      // 조직도 이미지
+      const imgData = canvas.toDataURL("image/png");
+      const margin = 5;
+      const availW = pdfW - margin * 2;
+      const availH = Math.max(pdfH, 210) - 14;
+      const ratio = Math.min(availW / imgW, availH / imgH);
+      const drawW = imgW * ratio;
+      const drawH = imgH * ratio;
+      const offsetX = margin + (availW - drawW) / 2;
+      pdf.addImage(imgData, "PNG", offsetX, 14, drawW, drawH);
+
+      pdf.save(`조직도_${today}.pdf`);
+      toast.success("PDF 파일이 다운로드되었습니다", { description: `조직도_${today}.pdf` });
+    } catch (e) {
+      toast.error("PDF 내보내기에 실패했습니다");
+    } finally {
+      setExporting(null);
+    }
+  }, [employees]);
 
   // 되돌리기
   const handleUndo = useCallback((h: MoveHistory) => {
@@ -834,6 +975,33 @@ export default function OrgChartPage() {
               <span className="font-bold text-[var(--coral)] mono-num">{highlightIds.size}명</span> 검색됨
             </div>
           )}
+
+          {/* 내보내기 버튼 */}
+          <div className="flex items-center gap-1.5 ml-auto">
+            <button
+              onClick={handleDownloadExcel}
+              disabled={exporting !== null}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all border",
+                "bg-white border-border text-muted-foreground hover:border-emerald-400 hover:text-emerald-600",
+                exporting === "excel" && "opacity-60 cursor-not-allowed"
+              )}>
+              <FileSpreadsheet size={13} />
+              {exporting === "excel" ? "생성 중..." : "엑셀"}
+            </button>
+            <button
+              onClick={handleDownloadPDF}
+              disabled={exporting !== null || viewMode !== "tree"}
+              title={viewMode !== "tree" ? "트리 뷰에서만 PDF 내보내기 가능" : "PDF로 내보내기"}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all border",
+                "bg-white border-border text-muted-foreground hover:border-rose-400 hover:text-rose-600",
+                (exporting === "pdf" || viewMode !== "tree") && "opacity-60 cursor-not-allowed"
+              )}>
+              <FileText size={13} />
+              {exporting === "pdf" ? "생성 중..." : "PDF"}
+            </button>
+          </div>
         </div>
 
         {/* 편집 모드 안내 배너 */}
@@ -852,7 +1020,7 @@ export default function OrgChartPage() {
       <div className="flex-1 flex overflow-hidden">
         <div className="flex-1 overflow-auto">
           {viewMode === "tree" ? (
-            <div className="min-w-max p-8 origin-top-left transition-transform duration-200"
+            <div ref={treeRef} className="min-w-max p-8 origin-top-left transition-transform duration-200"
               style={{ transform: `scale(${zoom})` }}>
               {/* CEO */}
               <div className="flex flex-col items-center mb-8">
