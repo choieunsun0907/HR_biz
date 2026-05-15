@@ -4,11 +4,12 @@
  *
  * 탭 구성:
  * 1. 연차 정책 — 계산 방식, 근속연수별 일수 테이블, 상한 설정
- * 2. 알림 설정 — (placeholder)
- * 3. 회사 정보 — (placeholder)
+ * 2. 전환 시뮬레이션 — 입사일→회계연도 기준 전환 일할 계산 미리보기 & 일괄 적용
+ * 3. 알림 설정
+ * 4. 회사 정보
  */
 
-import { useState, useEffect } from "react";
+import { useState, useMemo } from "react";
 import {
   CalendarDays,
   Bell,
@@ -19,7 +20,15 @@ import {
   Trash2,
   Info,
   CheckCircle2,
-  ChevronRight,
+  ArrowRightLeft,
+  AlertTriangle,
+  ChevronDown,
+  ChevronUp,
+  Play,
+  CheckSquare,
+  TrendingUp,
+  TrendingDown,
+  Minus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -33,17 +42,40 @@ import {
   savePolicy,
   calcLeaveByPolicy,
   formatTenure,
+  formatRatio,
+  simulateTransition,
+  TransitionEmployee,
+  TransitionResult,
+  RoundingMode,
 } from "@/lib/leavePolicy";
 
 // ─── 탭 정의 ──────────────────────────────────────────────────────────────────
 
 const TABS = [
-  { id: "leave", label: "연차 정책", icon: CalendarDays },
-  { id: "notification", label: "알림 설정", icon: Bell },
-  { id: "company", label: "회사 정보", icon: Building2 },
+  { id: "leave",      label: "연차 정책",      icon: CalendarDays },
+  { id: "transition", label: "전환 시뮬레이션", icon: ArrowRightLeft },
+  { id: "notification", label: "알림 설정",    icon: Bell },
+  { id: "company",    label: "회사 정보",       icon: Building2 },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
+
+// ─── 샘플 직원 데이터 (시뮬레이션용) ──────────────────────────────────────────
+
+const SAMPLE_EMPLOYEES: TransitionEmployee[] = [
+  { id: 1,  name: "김민준", dept: "개발팀",  joinDate: "2019-03-15", currentLeave: 12, usedLeave: 3 },
+  { id: 2,  name: "이서연", dept: "마케팅",  joinDate: "2021-07-01", currentLeave: 10, usedLeave: 5 },
+  { id: 3,  name: "박지훈", dept: "디자인",  joinDate: "2015-01-10", currentLeave: 18, usedLeave: 2 },
+  { id: 4,  name: "최수아", dept: "영업팀",  joinDate: "2023-11-20", currentLeave: 8,  usedLeave: 1 },
+  { id: 5,  name: "정도현", dept: "인사팀",  joinDate: "2018-05-03", currentLeave: 15, usedLeave: 7 },
+  { id: 6,  name: "강하은", dept: "재무팀",  joinDate: "2020-09-14", currentLeave: 11, usedLeave: 4 },
+  { id: 7,  name: "윤성민", dept: "개발팀",  joinDate: "2024-02-01", currentLeave: 5,  usedLeave: 0 },
+  { id: 8,  name: "임지은", dept: "마케팅",  joinDate: "2016-08-22", currentLeave: 20, usedLeave: 6 },
+  { id: 9,  name: "한승우", dept: "운영팀",  joinDate: "2022-04-11", currentLeave: 9,  usedLeave: 2 },
+  { id: 10, name: "오나연", dept: "디자인",  joinDate: "2024-08-05", currentLeave: 4,  usedLeave: 0 },
+  { id: 11, name: "신재원", dept: "개발팀",  joinDate: "2013-12-01", currentLeave: 22, usedLeave: 8 },
+  { id: 12, name: "배소희", dept: "인사팀",  joinDate: "2017-06-30", currentLeave: 17, usedLeave: 3 },
+];
 
 // ─── 연차 정책 탭 ─────────────────────────────────────────────────────────────
 
@@ -52,7 +84,6 @@ function LeavePolicyTab() {
   const [saved, setSaved] = useState(false);
   const [previewDate, setPreviewDate] = useState("");
 
-  // 미리보기 계산
   const preview = previewDate
     ? calcLeaveByPolicy(previewDate, policy)
     : null;
@@ -118,12 +149,10 @@ function LeavePolicyTab() {
                   : "border-border bg-white hover:border-[var(--teal)]/40"
               )}
             >
-              <div
-                className={cn(
-                  "w-4 h-4 rounded-full border-2 mt-0.5 shrink-0 flex items-center justify-center",
-                  policy.calcMode === mode ? "border-[var(--teal)] bg-[var(--teal)]" : "border-muted-foreground"
-                )}
-              >
+              <div className={cn(
+                "w-4 h-4 rounded-full border-2 mt-0.5 shrink-0 flex items-center justify-center",
+                policy.calcMode === mode ? "border-[var(--teal)] bg-[var(--teal)]" : "border-muted-foreground"
+              )}>
                 {policy.calcMode === mode && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
               </div>
               <div>
@@ -139,7 +168,6 @@ function LeavePolicyTab() {
             </button>
           ))}
         </div>
-
         {policy.calcMode === "fiscal" && (
           <div className="mt-3 flex items-center gap-3">
             <label className="text-xs font-medium text-foreground whitespace-nowrap">회계연도 시작 월</label>
@@ -156,33 +184,23 @@ function LeavePolicyTab() {
         )}
       </section>
 
-      {/* 최대 연차 / 수습 설정 */}
+      {/* 기본 설정 */}
       <section className="bg-white rounded-2xl border border-border p-5 shadow-sm">
         <h3 className="text-sm font-semibold text-foreground mb-4">기본 설정</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label className="block text-xs font-medium text-foreground mb-1.5">
-              연차 최대 상한 (일)
-            </label>
+            <label className="block text-xs font-medium text-foreground mb-1.5">연차 최대 상한 (일)</label>
             <input
-              type="number"
-              min={1}
-              max={365}
-              value={policy.maxDays}
+              type="number" min={1} max={365} value={policy.maxDays}
               onChange={(e) => setPolicy((p) => ({ ...p, maxDays: Math.max(1, Number(e.target.value)) }))}
               className="w-full text-sm border border-border rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-[var(--teal)]/30 mono-num"
             />
             <p className="text-[11px] text-muted-foreground mt-1">근속연수와 무관하게 이 일수를 초과하지 않습니다</p>
           </div>
           <div>
-            <label className="block text-xs font-medium text-foreground mb-1.5">
-              수습 기간 월별 부여일
-            </label>
+            <label className="block text-xs font-medium text-foreground mb-1.5">수습 기간 월별 부여일</label>
             <input
-              type="number"
-              min={0}
-              max={5}
-              value={policy.probationDays}
+              type="number" min={0} max={5} value={policy.probationDays}
               onChange={(e) => setPolicy((p) => ({ ...p, probationDays: Math.max(0, Number(e.target.value)) }))}
               className="w-full text-sm border border-border rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-[var(--teal)]/30 mono-num"
             />
@@ -191,21 +209,15 @@ function LeavePolicyTab() {
         </div>
       </section>
 
-      {/* 근속연수별 연차 규칙 테이블 */}
+      {/* 근속연수별 규칙 테이블 */}
       <section className="bg-white rounded-2xl border border-border shadow-sm overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-border">
           <div>
             <h3 className="text-sm font-semibold text-foreground">근속연수별 연차 규칙</h3>
             <p className="text-xs text-muted-foreground mt-0.5">행을 직접 수정하거나 추가/삭제할 수 있습니다</p>
           </div>
-          <Button
-            size="sm"
-            variant="outline"
-            className="gap-1.5 rounded-xl text-xs"
-            onClick={addRule}
-          >
-            <Plus size={12} />
-            규칙 추가
+          <Button size="sm" variant="outline" className="gap-1.5 rounded-xl text-xs" onClick={addRule}>
+            <Plus size={12} />규칙 추가
           </Button>
         </div>
         <div className="overflow-x-auto">
@@ -223,46 +235,28 @@ function LeavePolicyTab() {
               {policy.rules.map((rule, idx) => (
                 <tr key={idx} className="hover:bg-muted/20 transition-colors">
                   <td className="px-4 py-2">
-                    <input
-                      type="number"
-                      min={0}
-                      value={rule.yearsFrom}
+                    <input type="number" min={0} value={rule.yearsFrom}
                       onChange={(e) => updateRule(idx, "yearsFrom", e.target.value)}
-                      className="w-20 text-sm border border-border rounded-lg px-2 py-1 outline-none focus:ring-2 focus:ring-[var(--teal)]/30 mono-num"
-                    />
+                      className="w-20 text-sm border border-border rounded-lg px-2 py-1 outline-none focus:ring-2 focus:ring-[var(--teal)]/30 mono-num" />
                   </td>
                   <td className="px-4 py-2">
-                    <input
-                      type="number"
-                      min={-1}
-                      value={rule.yearsTo}
+                    <input type="number" min={-1} value={rule.yearsTo}
                       onChange={(e) => updateRule(idx, "yearsTo", e.target.value)}
-                      className="w-20 text-sm border border-border rounded-lg px-2 py-1 outline-none focus:ring-2 focus:ring-[var(--teal)]/30 mono-num"
-                    />
+                      className="w-20 text-sm border border-border rounded-lg px-2 py-1 outline-none focus:ring-2 focus:ring-[var(--teal)]/30 mono-num" />
                   </td>
                   <td className="px-4 py-2">
-                    <input
-                      type="number"
-                      min={0}
-                      max={365}
-                      value={rule.days}
+                    <input type="number" min={0} max={365} value={rule.days}
                       onChange={(e) => updateRule(idx, "days", e.target.value)}
-                      className="w-20 text-sm border border-border rounded-lg px-2 py-1 outline-none focus:ring-2 focus:ring-[var(--teal)]/30 mono-num font-bold text-[var(--teal-dark)]"
-                    />
+                      className="w-20 text-sm border border-border rounded-lg px-2 py-1 outline-none focus:ring-2 focus:ring-[var(--teal)]/30 mono-num font-bold text-[var(--teal-dark)]" />
                   </td>
                   <td className="px-4 py-2">
-                    <input
-                      type="text"
-                      value={rule.label}
+                    <input type="text" value={rule.label}
                       onChange={(e) => updateRule(idx, "label", e.target.value)}
-                      className="w-full text-xs border border-border rounded-lg px-2 py-1 outline-none focus:ring-2 focus:ring-[var(--teal)]/30 text-muted-foreground"
-                    />
+                      className="w-full text-xs border border-border rounded-lg px-2 py-1 outline-none focus:ring-2 focus:ring-[var(--teal)]/30 text-muted-foreground" />
                   </td>
                   <td className="px-4 py-2">
-                    <button
-                      onClick={() => removeRule(idx)}
-                      className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                    >
+                    <button onClick={() => removeRule(idx)}
+                      className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors">
                       <Trash2 size={13} />
                     </button>
                   </td>
@@ -282,13 +276,10 @@ function LeavePolicyTab() {
         <p className="text-xs text-muted-foreground mb-3">
           입사일을 입력하면 현재 정책 기준으로 부여될 연차 수를 미리 확인할 수 있습니다.
         </p>
-        <div className="flex items-center gap-3">
-          <input
-            type="date"
-            value={previewDate}
+        <div className="flex flex-wrap items-center gap-3">
+          <input type="date" value={previewDate}
             onChange={(e) => setPreviewDate(e.target.value)}
-            className="text-sm border border-border rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-[var(--teal)]/30"
-          />
+            className="text-sm border border-border rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-[var(--teal)]/30" />
           {preview && (
             <div className="flex items-center gap-3 px-4 py-2.5 bg-[var(--teal-light)] rounded-xl border border-[var(--teal)]/20">
               <CheckCircle2 size={16} className="text-[var(--teal)] shrink-0" />
@@ -299,9 +290,7 @@ function LeavePolicyTab() {
                 <div className="text-sm font-bold text-[var(--teal-dark)] mono-num">
                   {preview.days}일 부여
                   {preview.rule && (
-                    <span className="text-xs font-normal text-muted-foreground ml-2">
-                      ({preview.rule.label})
-                    </span>
+                    <span className="text-xs font-normal text-muted-foreground ml-2">({preview.rule.label})</span>
                   )}
                 </div>
               </div>
@@ -313,26 +302,450 @@ function LeavePolicyTab() {
       {/* 저장 버튼 */}
       <div className="flex items-center justify-end gap-3 pt-2">
         <Button variant="outline" className="gap-2 rounded-xl" onClick={handleReset}>
-          <RotateCcw size={14} />
-          기본값으로 초기화
+          <RotateCcw size={14} />기본값으로 초기화
         </Button>
-        <Button
-          className="gap-2 rounded-xl text-white min-w-28"
-          style={{ background: saved ? "var(--teal)" : "var(--teal)" }}
-          onClick={handleSave}
-        >
-          {saved ? (
-            <><CheckCircle2 size={14} />저장 완료</>
-          ) : (
-            <><Save size={14} />정책 저장</>
-          )}
+        <Button className="gap-2 rounded-xl text-white min-w-28" style={{ background: "var(--teal)" }} onClick={handleSave}>
+          {saved ? <><CheckCircle2 size={14} />저장 완료</> : <><Save size={14} />정책 저장</>}
         </Button>
       </div>
     </div>
   );
 }
 
-// ─── 알림 설정 탭 (placeholder) ───────────────────────────────────────────────
+// ─── 전환 시뮬레이션 탭 ───────────────────────────────────────────────────────
+
+const GROUP_LABELS: Record<string, { label: string; color: string; bg: string }> = {
+  "pre-transition": { label: "전환 전 입사 (일할 계산)", color: "text-[var(--teal-dark)]", bg: "bg-[var(--teal-light)]" },
+  "post-transition": { label: "전환 후 입사 (즉시 적용)", color: "text-blue-700", bg: "bg-blue-50" },
+  "probation": { label: "1년 미만 수습", color: "text-amber-700", bg: "bg-amber-50" },
+};
+
+function DiffBadge({ diff }: { diff: number }) {
+  if (diff > 0) return (
+    <span className="inline-flex items-center gap-0.5 text-emerald-700 font-semibold mono-num text-xs">
+      <TrendingUp size={11} />+{diff}
+    </span>
+  );
+  if (diff < 0) return (
+    <span className="inline-flex items-center gap-0.5 text-rose-600 font-semibold mono-num text-xs">
+      <TrendingDown size={11} />{diff}
+    </span>
+  );
+  return <span className="inline-flex items-center gap-0.5 text-muted-foreground text-xs"><Minus size={11} />0</span>;
+}
+
+function TransitionSimulationTab() {
+  const today = new Date().toISOString().split("T")[0];
+  const [transitionDate, setTransitionDate] = useState(today);
+  const [roundingMode, setRoundingMode] = useState<RoundingMode>("ceil");
+  const [simulated, setSimulated] = useState(false);
+  const [results, setResults] = useState<TransitionResult[]>([]);
+  const [applied, setApplied] = useState(false);
+  const [expandedRow, setExpandedRow] = useState<number | null>(null);
+  const [filterGroup, setFilterGroup] = useState<string>("all");
+
+  const policy = loadPolicy();
+
+  // 요약 통계
+  const summary = useMemo(() => {
+    if (!results.length) return null;
+    const increased = results.filter((r) => r.diff > 0).length;
+    const decreased = results.filter((r) => r.diff < 0).length;
+    const unchanged = results.filter((r) => r.diff === 0).length;
+    const negativeWarnings = results.filter((r) => r.wasNegative).length;
+    const totalBefore = results.reduce((s, r) => s + r.employee.currentLeave, 0);
+    const totalAfter = results.reduce((s, r) => s + r.finalLeave, 0);
+    return { increased, decreased, unchanged, negativeWarnings, totalBefore, totalAfter };
+  }, [results]);
+
+  const filteredResults = useMemo(() => {
+    if (filterGroup === "all") return results;
+    return results.filter((r) => r.group === filterGroup);
+  }, [results, filterGroup]);
+
+  const handleSimulate = () => {
+    if (!transitionDate) {
+      toast.error("전환 시행일을 선택해주세요");
+      return;
+    }
+    const res = simulateTransition(SAMPLE_EMPLOYEES, transitionDate, policy, roundingMode);
+    setResults(res);
+    setSimulated(true);
+    setApplied(false);
+    toast.success("시뮬레이션 완료", {
+      description: `${res.length}명 직원의 전환 후 연차가 계산되었습니다`,
+    });
+  };
+
+  const handleApply = () => {
+    setApplied(true);
+    toast.success("연차 일괄 적용 완료", {
+      description: `${results.length}명의 연차가 회계연도 기준으로 전환되었습니다`,
+    });
+  };
+
+  const transitionYear = transitionDate ? new Date(transitionDate).getFullYear() : new Date().getFullYear();
+  const isLeapYear = (y: number) => y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0);
+  const yearDays = isLeapYear(transitionYear) ? 366 : 365;
+  const remainingDays = transitionDate
+    ? Math.round((new Date(transitionYear, 11, 31).getTime() - new Date(transitionDate).getTime()) / 86400000) + 1
+    : 0;
+  const ratio = remainingDays / yearDays;
+
+  return (
+    <div className="space-y-5">
+      {/* 안내 배너 */}
+      <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-2xl">
+        <AlertTriangle size={16} className="text-amber-600 shrink-0 mt-0.5" />
+        <div>
+          <div className="text-sm font-semibold text-amber-800">연차 계산 방식 전환 시뮬레이션</div>
+          <div className="text-xs text-amber-700 mt-0.5 leading-relaxed">
+            입사일 기준 → 회계연도 기준(1월 1일)으로 전환 시, 전환 연도에 한해 <strong>일할 계산</strong>을 적용합니다.
+            전환 시행일부터 12월 31일까지의 잔여 일수를 연도 전체 일수로 나눈 비율만큼 연차를 부여합니다.
+            시뮬레이션 결과를 확인한 후 일괄 적용하세요.
+          </div>
+        </div>
+      </div>
+
+      {/* 설정 패널 */}
+      <section className="bg-white rounded-2xl border border-border p-5 shadow-sm">
+        <h3 className="text-sm font-semibold text-foreground mb-4">전환 설정</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {/* 전환 시행일 */}
+          <div>
+            <label className="block text-xs font-medium text-foreground mb-1.5">전환 시행일</label>
+            <input
+              type="date"
+              value={transitionDate}
+              onChange={(e) => { setTransitionDate(e.target.value); setSimulated(false); }}
+              className="w-full text-sm border border-border rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-[var(--teal)]/30"
+            />
+            {transitionDate && (
+              <p className="text-[11px] text-muted-foreground mt-1">
+                잔여 <span className="font-semibold mono-num text-[var(--teal-dark)]">{remainingDays}일</span>
+                {" "}/ {yearDays}일 = <span className="font-semibold mono-num text-[var(--teal-dark)]">{formatRatio(ratio)}</span>
+              </p>
+            )}
+          </div>
+
+          {/* 소수점 처리 */}
+          <div>
+            <label className="block text-xs font-medium text-foreground mb-1.5">소수점 처리 방식</label>
+            <div className="flex flex-col gap-1.5">
+              {([
+                { value: "ceil",  label: "올림 (권장 — 직원 유리)" },
+                { value: "round", label: "반올림 (중립)" },
+                { value: "floor", label: "내림 (회사 유리)" },
+              ] as const).map((opt) => (
+                <label key={opt.value} className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="rounding"
+                    value={opt.value}
+                    checked={roundingMode === opt.value}
+                    onChange={() => { setRoundingMode(opt.value); setSimulated(false); }}
+                    className="accent-[var(--teal)]"
+                  />
+                  <span className={cn("text-xs", roundingMode === opt.value ? "font-semibold text-[var(--teal-dark)]" : "text-muted-foreground")}>
+                    {opt.label}
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* 계산 공식 요약 */}
+          <div className="bg-muted/30 rounded-xl p-3 border border-border">
+            <div className="text-[11px] font-semibold text-muted-foreground mb-2">일할 계산 공식</div>
+            <div className="text-xs text-foreground leading-relaxed font-mono bg-white rounded-lg p-2 border border-border">
+              <div className="text-[var(--teal-dark)] font-bold">부여 연차 =</div>
+              <div className="mt-1 pl-2">회계연도 기준 연차</div>
+              <div className="pl-2">× (잔여 일수 / {yearDays}일)</div>
+              <div className="pl-2 text-muted-foreground">→ 소수점 {roundingMode === "ceil" ? "올림" : roundingMode === "round" ? "반올림" : "내림"}</div>
+              <div className="pl-2 text-muted-foreground">- 이미 사용한 연차</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end mt-4">
+          <Button
+            className="gap-2 rounded-xl text-white"
+            style={{ background: "var(--teal)" }}
+            onClick={handleSimulate}
+          >
+            <Play size={14} />
+            시뮬레이션 실행
+          </Button>
+        </div>
+      </section>
+
+      {/* 시뮬레이션 결과 */}
+      {simulated && summary && (
+        <>
+          {/* 요약 KPI */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {[
+              { label: "증가", value: summary.increased, color: "text-emerald-700", bg: "bg-emerald-50 border-emerald-200", icon: TrendingUp },
+              { label: "감소", value: summary.decreased, color: "text-rose-600", bg: "bg-rose-50 border-rose-200", icon: TrendingDown },
+              { label: "변동 없음", value: summary.unchanged, color: "text-muted-foreground", bg: "bg-muted/30 border-border", icon: Minus },
+              { label: "음수 경고", value: summary.negativeWarnings, color: "text-amber-700", bg: "bg-amber-50 border-amber-200", icon: AlertTriangle },
+            ].map((kpi) => (
+              <div key={kpi.label} className={cn("rounded-xl border p-3", kpi.bg)}>
+                <div className={cn("text-2xl font-bold mono-num", kpi.color)}>{kpi.value}명</div>
+                <div className="text-xs text-muted-foreground mt-0.5">{kpi.label}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* 전체 연차 합계 변화 */}
+          <div className="bg-white rounded-2xl border border-border p-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-semibold text-foreground">전체 연차 합계 변화</div>
+              <div className="flex items-center gap-4 text-sm">
+                <div>
+                  <span className="text-muted-foreground text-xs">전환 전</span>
+                  <span className="font-bold mono-num ml-2">{summary.totalBefore}일</span>
+                </div>
+                <span className="text-muted-foreground">→</span>
+                <div>
+                  <span className="text-muted-foreground text-xs">전환 후</span>
+                  <span className="font-bold mono-num ml-2 text-[var(--teal-dark)]">{summary.totalAfter}일</span>
+                </div>
+                <DiffBadge diff={summary.totalAfter - summary.totalBefore} />
+              </div>
+            </div>
+            {/* 진행 바 */}
+            <div className="mt-3 h-2 bg-muted rounded-full overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all duration-700"
+                style={{
+                  width: `${Math.min(100, (summary.totalAfter / Math.max(summary.totalBefore, 1)) * 100)}%`,
+                  background: "var(--teal)",
+                }}
+              />
+            </div>
+          </div>
+
+          {/* 그룹 필터 */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs text-muted-foreground font-medium">필터:</span>
+            {[
+              { value: "all", label: `전체 (${results.length}명)` },
+              { value: "pre-transition", label: `일할 계산 (${results.filter(r => r.group === "pre-transition").length}명)` },
+              { value: "probation", label: `수습 (${results.filter(r => r.group === "probation").length}명)` },
+              { value: "post-transition", label: `전환 후 입사 (${results.filter(r => r.group === "post-transition").length}명)` },
+            ].map((f) => (
+              <button
+                key={f.value}
+                onClick={() => setFilterGroup(f.value)}
+                className={cn(
+                  "px-3 py-1 rounded-full text-xs font-medium transition-all border",
+                  filterGroup === f.value
+                    ? "bg-[var(--teal)] text-white border-[var(--teal)]"
+                    : "bg-white text-muted-foreground border-border hover:border-[var(--teal)]/40"
+                )}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+
+          {/* 결과 테이블 */}
+          <section className="bg-white rounded-2xl border border-border shadow-sm overflow-hidden">
+            <div className="px-5 py-3 border-b border-border bg-muted/30 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-foreground">직원별 시뮬레이션 결과</h3>
+              <span className="text-xs text-muted-foreground">행 클릭 시 상세 계산 과정 확인</span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border">
+                    {["이름", "부서", "입사일", "근속", "그룹", "전환 전", "일할 계산", "전환 후", "증감"].map((h) => (
+                      <th key={h} className="text-left text-xs font-semibold text-muted-foreground px-4 py-2.5 whitespace-nowrap">{h}</th>
+                    ))}
+                    <th className="w-8" />
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {filteredResults.map((r) => {
+                    const grp = GROUP_LABELS[r.group];
+                    const isExpanded = expandedRow === r.employee.id;
+                    return (
+                      <>
+                        <tr
+                          key={r.employee.id}
+                          onClick={() => setExpandedRow(isExpanded ? null : r.employee.id)}
+                          className={cn(
+                            "cursor-pointer transition-colors",
+                            isExpanded ? "bg-[var(--teal-light)]" : "hover:bg-muted/20",
+                            r.wasNegative && "bg-amber-50/50"
+                          )}
+                        >
+                          <td className="px-4 py-3 font-medium text-foreground whitespace-nowrap">
+                            <div className="flex items-center gap-1.5">
+                              {r.wasNegative && <AlertTriangle size={12} className="text-amber-500 shrink-0" />}
+                              {r.employee.name}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-muted-foreground text-xs">{r.employee.dept}</td>
+                          <td className="px-4 py-3 text-muted-foreground text-xs mono-num">{r.employee.joinDate}</td>
+                          <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
+                            {formatTenure(r.tenureYears, r.tenureMonths)}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={cn("text-[10px] font-medium px-2 py-0.5 rounded-full", grp.bg, grp.color)}>
+                              {r.group === "pre-transition" ? "일할 계산" : r.group === "probation" ? "수습" : "즉시 적용"}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 font-semibold mono-num text-center">{r.employee.currentLeave}일</td>
+                          <td className="px-4 py-3 text-center">
+                            {r.group === "pre-transition" ? (
+                              <span className="text-xs text-muted-foreground mono-num">
+                                {r.fiscalBasedDays}×{formatRatio(r.prorationRatio)}={r.proratedDays}일
+                              </span>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">—</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 font-bold mono-num text-[var(--teal-dark)] text-center">{r.finalLeave}일</td>
+                          <td className="px-4 py-3 text-center"><DiffBadge diff={r.diff} /></td>
+                          <td className="px-4 py-3">
+                            {isExpanded ? <ChevronUp size={14} className="text-muted-foreground" /> : <ChevronDown size={14} className="text-muted-foreground" />}
+                          </td>
+                        </tr>
+                        {/* 상세 계산 과정 */}
+                        {isExpanded && (
+                          <tr key={`${r.employee.id}-detail`} className="bg-[var(--teal-light)]/60">
+                            <td colSpan={10} className="px-6 py-4">
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                  <div className="text-xs font-semibold text-[var(--teal-dark)] mb-2">상세 계산 과정</div>
+                                  {r.group === "pre-transition" && (
+                                    <div className="space-y-1.5 text-xs">
+                                      <div className="flex justify-between">
+                                        <span className="text-muted-foreground">① 회계연도 기준 연차</span>
+                                        <span className="font-semibold mono-num">{r.fiscalBasedDays}일</span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span className="text-muted-foreground">② 일할 비율 (잔여/연도)</span>
+                                        <span className="font-semibold mono-num">{formatRatio(r.prorationRatio)}</span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span className="text-muted-foreground">③ 일할 계산 (소수점 전)</span>
+                                        <span className="font-semibold mono-num">{r.proratedRaw.toFixed(2)}일</span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span className="text-muted-foreground">④ 소수점 처리 ({roundingMode === "ceil" ? "올림" : roundingMode === "round" ? "반올림" : "내림"})</span>
+                                        <span className="font-semibold mono-num">{r.proratedDays}일</span>
+                                      </div>
+                                      <div className="flex justify-between border-t border-[var(--teal)]/20 pt-1">
+                                        <span className="text-muted-foreground">⑤ 이미 사용한 연차 차감</span>
+                                        <span className="font-semibold mono-num text-rose-600">-{r.employee.usedLeave}일</span>
+                                      </div>
+                                      <div className="flex justify-between font-bold text-[var(--teal-dark)]">
+                                        <span>⑥ 최종 잔여 연차</span>
+                                        <span className="mono-num">{r.finalLeave}일</span>
+                                      </div>
+                                      {r.wasNegative && (
+                                        <div className="flex items-center gap-1.5 mt-1 text-amber-700 bg-amber-50 rounded-lg px-2 py-1.5">
+                                          <AlertTriangle size={11} />
+                                          <span>초과 사용으로 음수 발생 → 0일로 처리됨</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                  {r.group === "probation" && (
+                                    <div className="space-y-1.5 text-xs">
+                                      <div className="flex justify-between">
+                                        <span className="text-muted-foreground">근속 기간</span>
+                                        <span className="font-semibold">{formatTenure(r.tenureYears, r.tenureMonths)} (1년 미만)</span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span className="text-muted-foreground">전환 시행월부터 잔여 월</span>
+                                        <span className="font-semibold mono-num">{Math.round(r.prorationRatio * 12)}개월</span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span className="text-muted-foreground">월별 부여일 × 잔여 월</span>
+                                        <span className="font-semibold mono-num">{r.proratedDays}일</span>
+                                      </div>
+                                      <div className="flex justify-between border-t border-[var(--teal)]/20 pt-1 font-bold text-[var(--teal-dark)]">
+                                        <span>최종 잔여 연차</span>
+                                        <span className="mono-num">{r.finalLeave}일</span>
+                                      </div>
+                                    </div>
+                                  )}
+                                  {r.group === "post-transition" && (
+                                    <div className="text-xs text-muted-foreground">
+                                      전환 시행일 이후 입사자로, 처음부터 회계연도 기준이 적용됩니다.
+                                      일할 계산 없이 회계연도 기준 연차({r.fiscalBasedDays}일)가 즉시 부여됩니다.
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="space-y-2">
+                                  <div className="text-xs font-semibold text-[var(--teal-dark)] mb-2">직원 정보</div>
+                                  <div className="space-y-1 text-xs">
+                                    {[
+                                      { label: "입사일", value: r.employee.joinDate },
+                                      { label: "근속 기간", value: formatTenure(r.tenureYears, r.tenureMonths) },
+                                      { label: "현재 잔여 연차", value: `${r.employee.currentLeave}일` },
+                                      { label: "전환 전 사용 연차", value: `${r.employee.usedLeave}일` },
+                                    ].map((item) => (
+                                      <div key={item.label} className="flex justify-between">
+                                        <span className="text-muted-foreground">{item.label}</span>
+                                        <span className="font-medium mono-num">{item.value}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          {/* 일괄 적용 버튼 */}
+          {!applied ? (
+            <div className="flex items-center justify-between p-4 bg-white border border-border rounded-2xl shadow-sm">
+              <div>
+                <div className="text-sm font-semibold text-foreground">시뮬레이션 결과를 일괄 적용</div>
+                <div className="text-xs text-muted-foreground mt-0.5">
+                  전체 {results.length}명의 연차가 위 계산 결과로 업데이트됩니다. 이 작업은 되돌릴 수 없습니다.
+                </div>
+              </div>
+              <Button
+                className="gap-2 rounded-xl text-white shrink-0 ml-4"
+                style={{ background: "var(--coral)" }}
+                onClick={handleApply}
+              >
+                <CheckSquare size={14} />
+                일괄 적용
+              </Button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-3 p-4 bg-emerald-50 border border-emerald-200 rounded-2xl">
+              <CheckCircle2 size={18} className="text-emerald-600 shrink-0" />
+              <div>
+                <div className="text-sm font-semibold text-emerald-800">일괄 적용 완료</div>
+                <div className="text-xs text-emerald-700 mt-0.5">
+                  {results.length}명의 연차가 회계연도 기준({transitionDate} 전환)으로 업데이트되었습니다.
+                  다음 해 1월 1일부터 정상 회계연도 기준으로 운영됩니다.
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── 알림 설정 탭 ─────────────────────────────────────────────────────────────
 
 function NotificationTab() {
   const [settings, setSettings] = useState({
@@ -344,11 +757,11 @@ function NotificationTab() {
   });
 
   const items = [
-    { key: "leaveApproval", label: "연차 승인/거절 알림", desc: "직원의 연차 신청이 승인 또는 거절될 때 알림" },
-    { key: "leaveReminder", label: "연차 소진 독려 알림", desc: "잔여 연차가 설정 임계값 이하일 때 자동 알림" },
-    { key: "birthdayAlert", label: "생일 알림", desc: "직원 생일 당일 관리자에게 알림" },
-    { key: "newEmployee", label: "신규 직원 등록 알림", desc: "새 직원이 시스템에 등록될 때 알림" },
-    { key: "reportGenerated", label: "리포트 생성 알림", desc: "월별 연차 미사용률 리포트 생성 시 알림" },
+    { key: "leaveApproval",   label: "연차 승인/거절 알림",   desc: "직원의 연차 신청이 승인 또는 거절될 때 알림" },
+    { key: "leaveReminder",   label: "연차 소진 독려 알림",   desc: "잔여 연차가 설정 임계값 이하일 때 자동 알림" },
+    { key: "birthdayAlert",   label: "생일 알림",             desc: "직원 생일 당일 관리자에게 알림" },
+    { key: "newEmployee",     label: "신규 직원 등록 알림",   desc: "새 직원이 시스템에 등록될 때 알림" },
+    { key: "reportGenerated", label: "리포트 생성 알림",      desc: "월별 연차 미사용률 리포트 생성 시 알림" },
   ] as const;
 
   return (
@@ -372,20 +785,16 @@ function NotificationTab() {
         ))}
       </div>
       <div className="px-5 py-4 border-t border-border flex justify-end">
-        <Button
-          className="gap-2 rounded-xl text-white"
-          style={{ background: "var(--teal)" }}
-          onClick={() => toast.success("알림 설정이 저장되었습니다")}
-        >
-          <Save size={14} />
-          저장
+        <Button className="gap-2 rounded-xl text-white" style={{ background: "var(--teal)" }}
+          onClick={() => toast.success("알림 설정이 저장되었습니다")}>
+          <Save size={14} />저장
         </Button>
       </div>
     </div>
   );
 }
 
-// ─── 회사 정보 탭 (placeholder) ───────────────────────────────────────────────
+// ─── 회사 정보 탭 ─────────────────────────────────────────────────────────────
 
 function CompanyTab() {
   return (
@@ -396,32 +805,24 @@ function CompanyTab() {
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {[
-          { label: "회사명", placeholder: "싸카스포츠", defaultValue: "싸카스포츠" },
-          { label: "사업자 등록번호", placeholder: "000-00-00000", defaultValue: "" },
-          { label: "대표자명", placeholder: "홍길동", defaultValue: "" },
-          { label: "업종", placeholder: "스포츠용품 제조/유통", defaultValue: "" },
-          { label: "설립일", placeholder: "2010.01.01", defaultValue: "" },
-          { label: "직원 수", placeholder: "247", defaultValue: "247" },
+          { label: "회사명",           placeholder: "싸카스포츠",         defaultValue: "싸카스포츠" },
+          { label: "사업자 등록번호",  placeholder: "000-00-00000",       defaultValue: "" },
+          { label: "대표자명",         placeholder: "홍길동",             defaultValue: "" },
+          { label: "업종",             placeholder: "스포츠용품 제조/유통", defaultValue: "" },
+          { label: "설립일",           placeholder: "2010.01.01",         defaultValue: "" },
+          { label: "직원 수",          placeholder: "247",                defaultValue: "247" },
         ].map((f) => (
           <div key={f.label}>
             <label className="block text-xs font-medium text-foreground mb-1.5">{f.label}</label>
-            <input
-              type="text"
-              placeholder={f.placeholder}
-              defaultValue={f.defaultValue}
-              className="w-full text-sm border border-border rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-[var(--teal)]/30"
-            />
+            <input type="text" placeholder={f.placeholder} defaultValue={f.defaultValue}
+              className="w-full text-sm border border-border rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-[var(--teal)]/30" />
           </div>
         ))}
       </div>
       <div className="flex justify-end mt-5">
-        <Button
-          className="gap-2 rounded-xl text-white"
-          style={{ background: "var(--teal)" }}
-          onClick={() => toast.success("회사 정보가 저장되었습니다")}
-        >
-          <Save size={14} />
-          저장
+        <Button className="gap-2 rounded-xl text-white" style={{ background: "var(--teal)" }}
+          onClick={() => toast.success("회사 정보가 저장되었습니다")}>
+          <Save size={14} />저장
         </Button>
       </div>
     </div>
@@ -438,13 +839,13 @@ export default function SettingsPage() {
       {/* Header */}
       <div className="px-5 lg:px-7 pt-5 lg:pt-7 pb-4 bg-[oklch(0.975_0.005_220)] border-b border-border">
         <h1 className="text-2xl font-bold text-foreground tracking-tight">설정</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">연차 정책, 알림, 회사 정보를 관리합니다</p>
+        <p className="text-sm text-muted-foreground mt-0.5">연차 정책, 전환 시뮬레이션, 알림, 회사 정보를 관리합니다</p>
       </div>
 
       <div className="flex-1 overflow-y-auto px-5 lg:px-7 py-6">
-        <div className="max-w-3xl mx-auto">
+        <div className="max-w-4xl mx-auto">
           {/* Tab Nav */}
-          <div className="flex items-center gap-1 bg-white border border-border rounded-2xl p-1 mb-6 shadow-sm">
+          <div className="flex items-center gap-1 bg-white border border-border rounded-2xl p-1 mb-6 shadow-sm overflow-x-auto">
             {TABS.map((tab) => {
               const Icon = tab.icon;
               return (
@@ -452,7 +853,7 @@ export default function SettingsPage() {
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
                   className={cn(
-                    "flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-sm font-medium transition-all",
+                    "flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-sm font-medium transition-all whitespace-nowrap",
                     activeTab === tab.id
                       ? "bg-[var(--teal)] text-white shadow-sm"
                       : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
@@ -466,9 +867,10 @@ export default function SettingsPage() {
           </div>
 
           {/* Tab Content */}
-          {activeTab === "leave" && <LeavePolicyTab />}
+          {activeTab === "leave"        && <LeavePolicyTab />}
+          {activeTab === "transition"   && <TransitionSimulationTab />}
           {activeTab === "notification" && <NotificationTab />}
-          {activeTab === "company" && <CompanyTab />}
+          {activeTab === "company"      && <CompanyTab />}
         </div>
       </div>
     </div>
