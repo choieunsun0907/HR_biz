@@ -75,7 +75,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             TP
           </div>
           <div>
-            <div className="font-bold text-foreground text-base tracking-tight">TeamPulse</div>
+            <div className="font-bold text-foreground text-base tracking-tight">싸카스포츠</div>
             <div className="text-xs text-muted-foreground">HR Platform</div>
           </div>
         </div>
