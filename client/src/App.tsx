@@ -9,6 +9,7 @@ import DashboardPage from "./pages/DashboardPage";
 import AttendancePage from "./pages/AttendancePage";
 import CommunityPage from "./pages/CommunityPage";
 import EmployeesPage from "./pages/EmployeesPage";
+import ReportsPage from "./pages/ReportsPage";
 
 function Router() {
   return (
@@ -18,6 +19,7 @@ function Router() {
         <Route path="/attendance" component={AttendancePage} />
         <Route path="/community" component={CommunityPage} />
         <Route path="/employees" component={EmployeesPage} />
+        <Route path="/reports" component={ReportsPage} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />
       </Switch>
