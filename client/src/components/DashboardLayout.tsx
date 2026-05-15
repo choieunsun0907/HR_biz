@@ -27,6 +27,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { NotificationBell } from "@/pages/AttendancePage";
 
 interface NavItem {
   label: string;
@@ -206,14 +207,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           </div>
 
           <div className="flex items-center gap-2 ml-auto">
-            {/* Notification */}
-            <Button variant="ghost" size="icon" className="relative rounded-xl">
-              <Bell size={18} />
-              <span
-                className="absolute top-2 right-2 w-2 h-2 rounded-full"
-                style={{ background: "var(--coral)" }}
-              />
-            </Button>
+            {/* Notification Bell */}
+            <NotificationBell />
 
             {/* Date */}
             <div className="hidden sm:block text-xs text-muted-foreground bg-muted px-3 py-1.5 rounded-lg">

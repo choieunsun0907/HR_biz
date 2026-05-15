@@ -16,7 +16,7 @@
  *   - 연차 일괄 부여 기능
  */
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import {
   CalendarDays,
   MapPin,
@@ -42,8 +42,15 @@ import {
   Gift,
   Search,
   Filter,
+  Bell,
+  BellRing,
+  Send,
+  Settings2,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
@@ -55,6 +62,45 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+
+// ─── Notification Context (shared between AdminView & Header Bell) ─────────────
+
+interface NotificationLog {
+  id: number;
+  empName: string;
+  empDept: string;
+  empColor: string;
+  remaining: number;
+  threshold: number;
+  sentAt: string;
+  channel: string;
+  read: boolean;
+}
+
+// Global notification log state (lifted to module level for cross-component sharing)
+let _notificationLogs: NotificationLog[] = [
+  { id: 1, empName: "홍길동", empDept: "영업팀", empColor: "oklch(0.65 0.18 60)", remaining: 0, threshold: 3, sentAt: "2025.05.10 09:15", channel: "이메일+앱", read: true },
+  { id: 2, empName: "이준혁", empDept: "개발팀", empColor: "oklch(0.65 0.14 185)", remaining: 6, threshold: 7, sentAt: "2025.05.12 14:30", channel: "앱 알림", read: false },
+];
+let _notificationListeners: Array<() => void> = [];
+
+function subscribeNotifications(fn: () => void) {
+  _notificationListeners.push(fn);
+  return () => { _notificationListeners = _notificationListeners.filter((f) => f !== fn); };
+}
+function getNotificationLogs() { return _notificationLogs; }
+function addNotificationLog(log: NotificationLog) {
+  _notificationLogs = [log, ..._notificationLogs];
+  _notificationListeners.forEach((fn) => fn());
+}
+function markNotificationRead(id: number) {
+  _notificationLogs = _notificationLogs.map((n) => n.id === id ? { ...n, read: true } : n);
+  _notificationListeners.forEach((fn) => fn());
+}
+function markAllRead() {
+  _notificationLogs = _notificationLogs.map((n) => ({ ...n, read: true }));
+  _notificationListeners.forEach((fn) => fn());
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -140,6 +186,88 @@ const calendarData: Record<number, { type: string; label: string }> = {
   20: { type: "pending", label: "연차(대기)" },
   21: { type: "pending", label: "연차(대기)" },
 };
+
+// ─── Notification Bell (Header) ──────────────────────────────────────────────
+
+export function NotificationBell() {
+  const [logs, setLogs] = useState<NotificationLog[]>(() => getNotificationLogs());
+  const [open, setOpen] = useState(false);
+
+  // Subscribe to changes
+  useState(() => {
+    const unsub = subscribeNotifications(() => setLogs([...getNotificationLogs()]));
+    return unsub;
+  });
+
+  const unreadCount = logs.filter((n) => !n.read).length;
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button className="relative w-9 h-9 rounded-xl flex items-center justify-center hover:bg-muted transition-colors">
+          <Bell size={18} className="text-muted-foreground" />
+          {unreadCount > 0 && (
+            <span className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-[var(--coral)] text-white text-[9px] font-bold flex items-center justify-center">
+              {unreadCount}
+            </span>
+          )}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-80 p-0 rounded-2xl shadow-lg border border-border" align="end">
+        <div className="p-4 border-b border-border flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <BellRing size={15} className="text-[var(--teal)]" />
+            <span className="font-semibold text-sm text-foreground">연차 알림</span>
+            {unreadCount > 0 && (
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-[var(--coral-light)] text-[var(--coral)]">
+                {unreadCount}건 미확인
+              </span>
+            )}
+          </div>
+          {unreadCount > 0 && (
+            <button className="text-[11px] text-[var(--teal)] font-medium hover:underline" onClick={() => { markAllRead(); setLogs([...getNotificationLogs()]); }}>
+              모두 읽음
+            </button>
+          )}
+        </div>
+        <div className="max-h-72 overflow-y-auto">
+          {logs.length === 0 ? (
+            <div className="py-8 text-center text-sm text-muted-foreground">발송된 알림이 없습니다</div>
+          ) : logs.map((log) => (
+            <div key={log.id}
+              className={cn("flex items-start gap-3 px-4 py-3 border-b border-border last:border-0 cursor-pointer hover:bg-muted/30 transition-colors", !log.read && "bg-[var(--teal-light)]/40")}
+              onClick={() => { markNotificationRead(log.id); setLogs([...getNotificationLogs()]); }}
+            >
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-bold text-white shrink-0 mt-0.5"
+                style={{ background: log.empColor }}>
+                {log.empName.slice(0, 1)}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-semibold text-foreground">{log.empName}</span>
+                  <span className="text-[10px] text-muted-foreground">{log.empDept}</span>
+                  {!log.read && <span className="w-1.5 h-1.5 rounded-full bg-[var(--coral)] shrink-0" />}
+                </div>
+                <div className="text-[11px] text-muted-foreground mt-0.5">
+                  잔여 <span className="mono-num font-semibold text-[var(--coral)]">{log.remaining}일</span> · 임계값 {log.threshold}일 이하
+                </div>
+                <div className="text-[10px] text-muted-foreground mt-0.5">{log.sentAt} · {log.channel}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+        {logs.length > 0 && (
+          <div className="p-3 border-t border-border">
+            <button className="w-full text-xs text-center text-[var(--teal)] font-medium hover:underline"
+              onClick={() => setOpen(false)}>
+              관리자 뷰에서 설정 관리
+            </button>
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 // ─── Shared Helpers ───────────────────────────────────────────────────────────
 
@@ -582,6 +710,9 @@ function AdminView() {
             </div>
           </div>
 
+          {/* Leave Alert Settings */}
+          <LeaveAlertPanel />
+
           {/* Bulk Grant */}
           <div className="bg-white rounded-2xl p-5 shadow-sm border border-border">
             <div className="flex items-center justify-between mb-4">
@@ -777,6 +908,194 @@ function AdminView() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Leave Alert Panel ───────────────────────────────────────────────────────
+
+function LeaveAlertPanel() {
+  const [threshold, setThreshold] = useState(5);
+  const [channels, setChannels] = useState({ email: true, app: true, sms: false });
+  const [autoAlert, setAutoAlert] = useState(false);
+  const [autoFreq, setAutoFreq] = useState<"매일" | "매주" | "매월">("매주");
+  const [isSending, setIsSending] = useState(false);
+  const [logs, setLogs] = useState<NotificationLog[]>(() => getNotificationLogs());
+  const [showLog, setShowLog] = useState(false);
+
+  // Subscribe to global notification changes
+  useState(() => {
+    const unsub = subscribeNotifications(() => setLogs([...getNotificationLogs()]));
+    return unsub;
+  });
+
+  const targets = allEmployeeLeave.filter((e) => e.remaining <= threshold);
+
+  const channelLabel = [channels.email && "이메일", channels.app && "앱 알림", channels.sms && "SMS"]
+    .filter(Boolean).join("+") || "없음";
+
+  const handleSend = () => {
+    if (targets.length === 0) { toast.info("알림 대상 직원이 없습니다", { description: `잔여 연차 ${threshold}일 이하인 직원이 없습니다.` }); return; }
+    if (channelLabel === "없음") { toast.error("발송 채널을 하나 이상 선택해주세요"); return; }
+    setIsSending(true);
+    setTimeout(() => {
+      setIsSending(false);
+      targets.forEach((emp, i) => {
+        const newLog: NotificationLog = {
+          id: Date.now() + i,
+          empName: emp.name,
+          empDept: emp.dept,
+          empColor: emp.color,
+          remaining: emp.remaining,
+          threshold,
+          sentAt: new Date().toLocaleString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).replace(/\. /g, ".").replace(/\.$/, ""),
+          channel: channelLabel,
+          read: false,
+        };
+        addNotificationLog(newLog);
+      });
+      setLogs([...getNotificationLogs()]);
+      toast.success(`${targets.length}명에게 연차 소진 알림을 발송했습니다`, {
+        description: `채널: ${channelLabel} · 잔여 ${threshold}일 이하 대상`,
+      });
+    }, 1200);
+  };
+
+  return (
+    <div className="bg-white rounded-2xl p-5 shadow-sm border border-border">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <h2 className="section-title">연차 소진 알림</h2>
+          {autoAlert && (
+            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-[var(--teal-light)] text-[var(--teal-dark)]">자동 ON</span>
+          )}
+        </div>
+        <BellRing size={16} className="text-[var(--teal)]" />
+      </div>
+
+      {/* Threshold Slider */}
+      <div className="mb-4">
+        <div className="flex items-center justify-between mb-2">
+          <label className="text-xs font-medium text-foreground">알림 임계값</label>
+          <span className="mono-num text-sm font-bold text-[var(--teal)]">잔여 {threshold}일 이하</span>
+        </div>
+        <input type="range" min={1} max={15} value={threshold} onChange={(e) => setThreshold(Number(e.target.value))}
+          className="w-full h-1.5 rounded-full appearance-none cursor-pointer"
+          style={{ accentColor: "var(--teal)" }}
+        />
+        <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
+          <span>1일</span><span>5일</span><span>10일</span><span>15일</span>
+        </div>
+      </div>
+
+      {/* Target Preview */}
+      <div className="mb-4">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs font-medium text-foreground">알림 대상</span>
+          <span className={cn("mono-num text-xs font-bold", targets.length > 0 ? "text-[var(--coral)]" : "text-muted-foreground")}>
+            {targets.length}명
+          </span>
+        </div>
+        {targets.length === 0 ? (
+          <div className="py-3 text-center text-xs text-muted-foreground bg-muted rounded-xl">
+            해당 조건의 직원이 없습니다
+          </div>
+        ) : (
+          <div className="space-y-1.5 max-h-28 overflow-y-auto">
+            {targets.map((emp) => (
+              <div key={emp.name} className="flex items-center gap-2 p-2 bg-[var(--coral-light)] rounded-xl">
+                <div className="w-6 h-6 rounded-md flex items-center justify-center text-[9px] font-bold text-white shrink-0"
+                  style={{ background: emp.color }}>
+                  {emp.name.slice(0, 1)}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <span className="text-xs font-semibold text-foreground">{emp.name}</span>
+                  <span className="text-[10px] text-muted-foreground ml-1">{emp.dept}</span>
+                </div>
+                <span className="mono-num text-xs font-bold text-[var(--coral)] shrink-0">{emp.remaining}일</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Channel Selection */}
+      <div className="mb-4">
+        <label className="text-xs font-medium text-foreground mb-2 block">발송 채널</label>
+        <div className="flex gap-2">
+          {(["email", "app", "sms"] as const).map((ch) => {
+            const labels = { email: "이메일", app: "앱 알림", sms: "SMS" };
+            return (
+              <button key={ch} onClick={() => setChannels((prev) => ({ ...prev, [ch]: !prev[ch] }))}
+                className={cn("flex-1 py-1.5 rounded-lg text-xs font-medium transition-all border",
+                  channels[ch]
+                    ? "bg-[var(--teal)] text-white border-[var(--teal)]"
+                    : "bg-white text-muted-foreground border-border hover:border-[var(--teal)]")}>
+                {labels[ch]}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Auto Alert Toggle */}
+      <div className="flex items-center justify-between mb-4 p-3 bg-muted rounded-xl">
+        <div>
+          <div className="text-xs font-medium text-foreground">자동 알림</div>
+          <div className="text-[10px] text-muted-foreground mt-0.5">주기적으로 자동 발송</div>
+        </div>
+        <div className="flex items-center gap-2">
+          {autoAlert && (
+            <select value={autoFreq} onChange={(e) => setAutoFreq(e.target.value as typeof autoFreq)}
+              className="text-xs border border-border rounded-lg px-2 py-1 outline-none bg-white">
+              <option value="매일">매일</option>
+              <option value="매주">매주</option>
+              <option value="매월">매월</option>
+            </select>
+          )}
+          <button onClick={() => { setAutoAlert((v) => !v); if (!autoAlert) toast.success(`자동 알림이 활성화되었습니다`, { description: `${autoFreq} 발송 · 잔여 ${threshold}일 이하 대상` }); }}
+            className={cn("w-10 h-5 rounded-full transition-all relative", autoAlert ? "bg-[var(--teal)]" : "bg-muted-foreground/30")}>
+            <span className={cn("absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all", autoAlert ? "left-5" : "left-0.5")} />
+          </button>
+        </div>
+      </div>
+
+      {/* Send Button */}
+      <Button className="w-full rounded-xl text-white gap-2 text-sm" style={{ background: isSending ? "var(--teal-dark)" : "var(--teal)" }}
+        onClick={handleSend} disabled={isSending}>
+        {isSending ? (
+          <><span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />발송 중...</>
+        ) : (
+          <><Send size={14} />지금 발송 ({targets.length}명)</>
+        )}
+      </Button>
+
+      {/* Log Toggle */}
+      <button className="w-full mt-3 flex items-center justify-between text-xs text-muted-foreground hover:text-foreground transition-colors"
+        onClick={() => setShowLog((v) => !v)}>
+        <span>발송 내역 ({logs.length}건)</span>
+        {showLog ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+      </button>
+
+      {showLog && (
+        <div className="mt-2 space-y-1.5 max-h-40 overflow-y-auto">
+          {logs.length === 0 ? (
+            <div className="py-3 text-center text-xs text-muted-foreground">발송 내역이 없습니다</div>
+          ) : logs.map((log) => (
+            <div key={log.id} className={cn("flex items-center gap-2 p-2 rounded-xl text-[11px]", log.read ? "bg-muted" : "bg-[var(--teal-light)]")}>
+              <div className="w-5 h-5 rounded-md flex items-center justify-center text-[8px] font-bold text-white shrink-0"
+                style={{ background: log.empColor }}>
+                {log.empName.slice(0, 1)}
+              </div>
+              <div className="flex-1 min-w-0">
+                <span className="font-semibold text-foreground">{log.empName}</span>
+                <span className="text-muted-foreground ml-1">{log.empDept} · 잔여 {log.remaining}일</span>
+              </div>
+              <span className="text-muted-foreground shrink-0">{log.sentAt.split(" ")[0]}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
