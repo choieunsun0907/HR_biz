@@ -700,6 +700,7 @@ export default function EmployeesPage() {
       memo: emp.memo || "",
       color: emp.color,
       avatar: emp.avatar,
+      leaveTotal: emp.leaveBalance,
     });
     setModalOpen(true);
   };
@@ -730,6 +731,7 @@ export default function EmployeesPage() {
                 engagementScore: data.engagementScore,
                 memo: data.memo,
                 color: data.color,
+                leaveBalance: data.leaveTotal !== undefined ? data.leaveTotal : e.leaveBalance,
               }
             : e
         );
@@ -756,7 +758,7 @@ export default function EmployeesPage() {
           birthDate: data.birthDate,
           manager: data.manager,
           engagementScore: data.engagementScore,
-          leaveBalance: 15,
+          leaveBalance: data.leaveTotal ?? 15,
           leaveUsed: 0,
           attendanceRate: 100,
           skills: data.skills,

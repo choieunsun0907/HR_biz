@@ -63,6 +63,7 @@ export interface EmployeeFormData {
   memo: string;
   color: string;
   avatar: string;
+  leaveTotal: number;
 }
 
 interface EmployeeFormModalProps {
@@ -114,6 +115,7 @@ const EMPTY_FORM: EmployeeFormData = {
   email: "", phone: "", location: "서울 강남구", joinDate: "", birthDate: "",
   manager: "", skills: [], engagementScore: 80, memo: "",
   color: AVATAR_COLORS[0], avatar: "",
+  leaveTotal: 15,
 };
 
 function getAvatarText(name: string) {
@@ -408,18 +410,40 @@ function Step2({
         </div>
       </div>
 
-      {/* 직속 상관 */}
-      <div>
-        <label className="block text-sm font-medium text-foreground mb-1.5">
-          <span className="flex items-center gap-1.5"><Briefcase size={13} />직속 상관</span>
-        </label>
-        <input
-          type="text"
-          placeholder="상관 이름 입력"
-          value={form.manager}
-          onChange={(e) => onChange("manager", e.target.value)}
-          className="w-full px-3 py-2.5 text-sm border border-border rounded-xl outline-none focus:ring-2 focus:ring-[var(--teal)]/30 placeholder:text-muted-foreground/50"
-        />
+      {/* 직속 상관 + 연차 수 */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="col-span-1">
+          <label className="block text-sm font-medium text-foreground mb-1.5">
+            <span className="flex items-center gap-1.5"><Briefcase size={13} />직속 상관</span>
+          </label>
+          <input
+            type="text"
+            placeholder="상관 이름 입력"
+            value={form.manager}
+            onChange={(e) => onChange("manager", e.target.value)}
+            className="w-full px-3 py-2.5 text-sm border border-border rounded-xl outline-none focus:ring-2 focus:ring-[var(--teal)]/30 placeholder:text-muted-foreground/50"
+          />
+        </div>
+        <div className="col-span-1">
+          <label className="block text-sm font-medium text-foreground mb-1.5">
+            <span className="flex items-center gap-1.5"><Calendar size={13} />연차 수 (일) <span className="text-destructive">*</span></span>
+          </label>
+          <input
+            type="number"
+            min={0}
+            max={365}
+            placeholder="15"
+            value={form.leaveTotal}
+            onChange={(e) => onChange("leaveTotal", e.target.value)}
+            className={cn(
+              "w-full px-3 py-2.5 text-sm border rounded-xl outline-none transition-all",
+              "focus:ring-2 focus:ring-[var(--teal)]/30 placeholder:text-muted-foreground/50",
+              errors.leaveTotal ? "border-destructive bg-red-50/30" : "border-border"
+            )}
+          />
+          <FieldError msg={errors.leaveTotal} />
+          <p className="text-[10px] text-muted-foreground mt-1">입사 기준 부여 연차 총일수</p>
+        </div>
       </div>
     </div>
   );
@@ -627,7 +651,7 @@ export default function EmployeeFormModal({
   const handleChange = (field: keyof EmployeeFormData, value: string) => {
     setForm((prev) => ({
       ...prev,
-      [field]: field === "engagementScore" ? Number(value) : value,
+      [field]: (field === "engagementScore" || field === "leaveTotal") ? Number(value) : value,
       ...(field === "name" ? { avatar: getAvatarText(value) } : {}),
     }));
     if (errors[field]) setErrors((prev) => ({ ...prev, [field]: undefined }));
@@ -650,6 +674,8 @@ export default function EmployeeFormModal({
       else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
         newErrors.email = "올바른 이메일 형식을 입력해주세요";
       if (!form.joinDate) newErrors.joinDate = "입사일을 선택해주세요";
+      if (form.leaveTotal < 0 || form.leaveTotal > 365)
+        newErrors.leaveTotal = "연차 수는 0~365일 사이로 입력해주세요";
     }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
