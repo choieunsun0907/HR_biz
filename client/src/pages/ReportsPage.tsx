@@ -35,6 +35,7 @@ import {
   ChevronDown,
   Printer,
   RefreshCw,
+  Sheet,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -322,6 +323,7 @@ export default function ReportsPage() {
   const [selectedMonth, setSelectedMonth] = useState(currentMonth);
   const [sortBy, setSortBy] = useState<"unusedRate" | "remaining" | "name">("unusedRate");
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const printRef = useRef<HTMLDivElement>(null);
 
   const monthlyData = generateMonthlyData(selectedYear);
@@ -342,6 +344,80 @@ export default function ReportsPage() {
   };
 
   const currentMonthData = monthlyData[selectedMonth - 1];
+
+  const handleDownloadExcel = async () => {
+    setIsExporting(true);
+    toast.info("엑셀 파일 생성 중...", { description: "잠시만 기다려 주세요." });
+    try {
+      const XLSX = await import("xlsx");
+
+      // ── Sheet 1: 직원별 상세 데이터 ──────────────────────────────────
+      const empRows = employeeData.map((emp) => ({
+        순위: emp.rank,
+        이름: emp.name,
+        부서: emp.dept,
+        "총 연차(일)": emp.total,
+        "사용(일)": emp.used,
+        "잔여(일)": emp.remaining,
+        "미사용률(%)": emp.unusedRate,
+        "전월 대비": emp.trend === "up" ? `+${emp.trendVal}%p` : emp.trend === "down" ? `-${emp.trendVal}%p` : "변동없음",
+        위험도: emp.unusedRate >= 85 ? "위험" : emp.unusedRate >= 70 ? "주의" : "양호",
+      }));
+      const empSheet = XLSX.utils.json_to_sheet(empRows);
+      // 컬럼 너비 설정
+      empSheet["!cols"] = [8, 10, 10, 12, 10, 10, 12, 12, 8].map((w) => ({ wch: w }));
+
+      // ── Sheet 2: 월별 추세 데이터 ────────────────────────────────────
+      const monthRows = monthlyData.map((m) => ({
+        월: m.month,
+        "평균 미사용률(%)": m.avgUnusedRate,
+        "고위험 직원 수(명)": m.highRiskCount,
+        "총 직원 수(명)": m.totalEmployees,
+      }));
+      const monthSheet = XLSX.utils.json_to_sheet(monthRows);
+      monthSheet["!cols"] = [8, 16, 16, 14].map((w) => ({ wch: w }));
+
+      // ── Sheet 3: 부서별 통계 ─────────────────────────────────────────
+      const deptRows = deptData.map((d) => ({
+        부서: d.dept,
+        "평균 미사용률(%)": d.avgUnusedRate,
+        "재직 인원(명)": d.count,
+      }));
+      const deptSheet = XLSX.utils.json_to_sheet(deptRows);
+      deptSheet["!cols"] = [12, 16, 14].map((w) => ({ wch: w }));
+
+      // ── Sheet 4: 요약 KPI ────────────────────────────────────────────
+      const kpiRows = [
+        { 항목: "기준 연도", 값: `${selectedYear}년` },
+        { 항목: "기준 월", 값: `${selectedMonth}월` },
+        { 항목: "평균 미사용률", 값: `${summaryStats.avgUnused}%` },
+        { 항목: "고위험 직원 수", 값: `${summaryStats.highRisk}명` },
+        { 항목: "최고 미사용률", 값: `${summaryStats.maxUnused}%` },
+        { 항목: "최고 미사용률 직원", 값: summaryStats.topEmp },
+        { 항목: "총 직원 수", 값: "247명" },
+        { 항목: "생성일", 값: new Date().toLocaleDateString("ko-KR") },
+      ];
+      const kpiSheet = XLSX.utils.json_to_sheet(kpiRows);
+      kpiSheet["!cols"] = [20, 16].map((w) => ({ wch: w }));
+
+      // ── 워크북 조합 ──────────────────────────────────────────────────
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, empSheet, "직원별 미사용률");
+      XLSX.utils.book_append_sheet(wb, monthSheet, "월별 추세");
+      XLSX.utils.book_append_sheet(wb, deptSheet, "부서별 통계");
+      XLSX.utils.book_append_sheet(wb, kpiSheet, "요약 KPI");
+
+      const fileName = `연차미사용률_리포트_${selectedYear}년${selectedMonth}월.xlsx`;
+      XLSX.writeFile(wb, fileName);
+
+      toast.success("엑셀 다운로드 완료", { description: `${fileName} · 시트 4개 포함` });
+    } catch (err) {
+      console.error(err);
+      toast.error("엑셀 생성에 실패했습니다", { description: "잠시 후 다시 시도해주세요." });
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   const handleDownloadPDF = async () => {
     if (!printRef.current) return;
@@ -440,6 +516,19 @@ export default function ReportsPage() {
             </select>
             <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
           </div>
+          {/* Excel Download */}
+          <Button
+            variant="outline"
+            className="gap-2 rounded-xl text-sm border-[var(--teal)] text-[var(--teal-dark)] hover:bg-[var(--teal-light)] bg-white"
+            onClick={handleDownloadExcel}
+            disabled={isExporting}
+          >
+            {isExporting ? (
+              <><span className="w-3.5 h-3.5 border-2 border-[var(--teal)]/40 border-t-[var(--teal)] rounded-full animate-spin" />생성 중...</>
+            ) : (
+              <><Sheet size={15} />엑셀 다운로드</>
+            )}
+          </Button>
           {/* PDF Download */}
           <Button
             className="gap-2 rounded-xl text-white text-sm"
