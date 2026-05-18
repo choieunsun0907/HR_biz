@@ -203,7 +203,189 @@ function vitePluginStorageProxy(): Plugin {
   };
 }
 
-const plugins = [react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime(), vitePluginManusDebugCollector(), vitePluginStorageProxy()];
+// =============================================================================
+// Auth API Plugin - /api/auth/* 처리 (DB 기반 JWT 인증)
+// =============================================================================
+function vitePluginAuthApi(): Plugin {
+  const COOKIE_NAME = "tp_auth";
+  const JWT_SECRET = process.env.JWT_SECRET || "teampulse-secret-key";
+  const DATABASE_URL = process.env.DATABASE_URL;
+
+  // DB 풀 lazy 초기화
+  let _pool: any = null;
+  async function getPool() {
+    if (_pool) return _pool;
+    if (!DATABASE_URL) return null;
+    const mysql = await import("mysql2/promise");
+    _pool = mysql.createPool(DATABASE_URL);
+    return _pool;
+  }
+
+  // 쿠키 파싱
+  function parseCookies(cookieHeader: string): Record<string, string> {
+    const cookies: Record<string, string> = {};
+    if (!cookieHeader) return cookies;
+    cookieHeader.split(";").forEach((part) => {
+      const [k, ...v] = part.trim().split("=");
+      if (k) cookies[k.trim()] = decodeURIComponent(v.join("="));
+    });
+    return cookies;
+  }
+
+  // 요청 body 읽기
+  function readBody(req: any): Promise<any> {
+    return new Promise((resolve) => {
+      const existing = (req as any).body;
+      if (existing && typeof existing === "object") {
+        resolve(existing);
+        return;
+      }
+      let raw = "";
+      req.on("data", (chunk: Buffer) => { raw += chunk.toString(); });
+      req.on("end", () => {
+        try { resolve(JSON.parse(raw)); } catch { resolve({}); }
+      });
+    });
+  }
+
+  function sendJson(res: any, status: number, data: unknown) {
+    const body = JSON.stringify(data);
+    res.writeHead(status, {
+      "Content-Type": "application/json",
+      "Content-Length": Buffer.byteLength(body),
+    });
+    res.end(body);
+  }
+
+  function setCookieHeader(res: any, token: string) {
+    res.setHeader("Set-Cookie", `${COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${7 * 24 * 3600}`);
+  }
+
+  function clearCookieHeader(res: any) {
+    res.setHeader("Set-Cookie", `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
+  }
+
+  return {
+    name: "manus-auth-api",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/auth", async (req: any, res: any, next: any) => {
+        const url = req.url as string;
+        const method = req.method as string;
+
+        // POST /api/auth/login
+        if (url === "/login" && method === "POST") {
+          try {
+            const body = await readBody(req);
+            const { email, password } = body as { email: string; password: string };
+            if (!email || !password) {
+              return sendJson(res, 400, { error: "이메일과 비밀번호를 입력해 주세요." });
+            }
+            const db = await getPool();
+            if (!db) return sendJson(res, 500, { error: "데이터베이스 연결 실패" });
+
+            const [rows] = await db.execute(
+              "SELECT * FROM tp_users WHERE email = ? LIMIT 1",
+              [email]
+            );
+            if ((rows as any[]).length === 0) {
+              return sendJson(res, 401, { error: "이메일 또는 비밀번호가 올바르지 않습니다." });
+            }
+            const user = (rows as any[])[0];
+            const bcrypt = await import("bcryptjs");
+            const valid = await bcrypt.compare(password, user.password);
+            if (!valid) {
+              return sendJson(res, 401, { error: "이메일 또는 비밀번호가 올바르지 않습니다." });
+            }
+            const jwtMod = await import("jsonwebtoken");
+            const jwt = (jwtMod.default ?? jwtMod) as any;
+            const payload = {
+              id: user.id,
+              email: user.email,
+              name: user.name,
+              role: user.role,
+              department: user.department ?? null,
+              position: user.position ?? null,
+            };
+            const token = jwt.sign(payload, JWT_SECRET, { expiresIn: "7d" });
+            setCookieHeader(res, token);
+            return sendJson(res, 200, { user: payload });
+          } catch (e) {
+            console.error("[auth-api] login error:", e);
+            return sendJson(res, 500, { error: "서버 오류가 발생했습니다." });
+          }
+        }
+
+        // GET /api/auth/me
+        if (url === "/me" && method === "GET") {
+          try {
+            const cookies = parseCookies(req.headers.cookie || "");
+            const token = cookies[COOKIE_NAME];
+            if (!token) return sendJson(res, 401, { error: "인증이 필요합니다." });
+            const jwtMod2 = await import("jsonwebtoken");
+            const jwt = (jwtMod2.default ?? jwtMod2) as any;
+            const decoded = jwt.verify(token, JWT_SECRET) as any;
+            return sendJson(res, 200, {
+              user: {
+                id: decoded.id,
+                email: decoded.email,
+                name: decoded.name,
+                role: decoded.role,
+                department: decoded.department ?? null,
+                position: decoded.position ?? null,
+              },
+            });
+          } catch {
+            return sendJson(res, 401, { error: "유효하지 않은 토큰입니다." });
+          }
+        }
+
+        // POST /api/auth/logout
+        if (url === "/logout" && method === "POST") {
+          clearCookieHeader(res);
+          return sendJson(res, 200, { success: true });
+        }
+
+        // POST /api/auth/change-password
+        if (url === "/change-password" && method === "POST") {
+          try {
+            const cookies = parseCookies(req.headers.cookie || "");
+            const token = cookies[COOKIE_NAME];
+            if (!token) return sendJson(res, 401, { error: "인증이 필요합니다." });
+            const jwtMod3 = await import("jsonwebtoken");
+            const jwt = (jwtMod3.default ?? jwtMod3) as any;
+            const decoded = jwt.verify(token, JWT_SECRET) as any;
+            const body = await readBody(req);
+            const { currentPassword, newPassword } = body as { currentPassword: string; newPassword: string };
+            const db = await getPool();
+            if (!db) return sendJson(res, 500, { error: "DB 연결 실패" });
+            const [rows] = await db.execute("SELECT * FROM tp_users WHERE id = ? LIMIT 1", [decoded.id]);
+            if ((rows as any[]).length === 0) return sendJson(res, 404, { error: "사용자를 찾을 수 없습니다." });
+            const bcrypt = await import("bcryptjs");
+            const valid = await bcrypt.compare(currentPassword, (rows as any[])[0].password);
+            if (!valid) return sendJson(res, 400, { error: "현재 비밀번호가 올바르지 않습니다." });
+            const hashed = await bcrypt.hash(newPassword, 10);
+            await db.execute("UPDATE tp_users SET password = ? WHERE id = ?", [hashed, decoded.id]);
+            return sendJson(res, 200, { success: true });
+          } catch {
+            return sendJson(res, 401, { error: "인증 오류" });
+          }
+        }
+
+        next();
+      });
+    },
+  };
+}
+
+const plugins = [
+  react(),
+  tailwindcss(),
+  jsxLocPlugin(),
+  vitePluginManusRuntime(),
+  vitePluginManusDebugCollector(),
+  vitePluginStorageProxy(),
+  vitePluginAuthApi(),
+];
 
 export default defineConfig({
   plugins,
