@@ -7,7 +7,7 @@
  * - 조직도 메신저 (1:1 채팅, Enter 전송, 자동 스크롤)
  */
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import {
   Bell,
   Pin,
@@ -27,6 +27,9 @@ import {
   AlertTriangle,
   X,
   MoreHorizontal,
+  ThumbsUp,
+  Trash2,
+  Reply,
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -70,6 +73,19 @@ interface BoardPost {
   hasImage: boolean;
   pinned: boolean;
   content?: string;
+}
+
+interface NoticeComment {
+  id: number;
+  noticeId: number;
+  author: string;
+  avatar: string;
+  dept: string;
+  content: string;
+  date: string;
+  likes: number;
+  likedByMe: boolean;
+  replies?: NoticeComment[];
 }
 
 interface Message {
@@ -192,6 +208,25 @@ const INITIAL_CHAT_MESSAGES: Record<string, Message[]> = {
   ],
 };
 
+// 공지사항별 초기 댓글 데이터
+const INITIAL_COMMENTS: NoticeComment[] = [
+  {
+    id: 1, noticeId: 1, author: "이준혁", avatar: "이준", dept: "개발팀",
+    content: "성과 평가 기준 문서는 어디서 확인할 수 있나요?",
+    date: "2025.05.14 10:32", likes: 3, likedByMe: false,
+  },
+  {
+    id: 2, noticeId: 1, author: "박소연", avatar: "박소", dept: "마케팅",
+    content: "마케팅팀도 동일한 기준으로 평가되나요? 별도 안내가 있을지 궁금합니다.",
+    date: "2025.05.14 11:05", likes: 1, likedByMe: false,
+  },
+  {
+    id: 3, noticeId: 2, author: "정하은", avatar: "정하", dept: "디자인",
+    content: "복지몰 링크 공유 부탁드립니다!",
+    date: "2025.05.12 14:20", likes: 5, likedByMe: false,
+  },
+];
+
 // ─── Notice Panel ─────────────────────────────────────────────────────────────
 
 function NoticePanel() {
@@ -201,6 +236,12 @@ function NoticePanel() {
   const [writeOpen, setWriteOpen] = useState(false);
   const [form, setForm] = useState({ title: "", content: "", mustRead: false, pinned: false });
   const [formError, setFormError] = useState({ title: false, content: false });
+  const [comments, setComments] = useState<NoticeComment[]>(INITIAL_COMMENTS);
+  const [commentInput, setCommentInput] = useState("");
+  const [replyTo, setReplyTo] = useState<number | null>(null);
+  const [replyInput, setReplyInput] = useState("");
+  const [likedComments, setLikedComments] = useState<Set<number>>(new Set());
+  const commentInputRef = useRef<HTMLTextAreaElement>(null);
 
   const handleRead = (notice: Notice) => {
     setSelected(notice);
@@ -247,6 +288,70 @@ function NoticePanel() {
     setForm({ title: "", content: "", mustRead: false, pinned: false });
     setFormError({ title: false, content: false });
   };
+
+  const handleAddComment = () => {
+    if (!commentInput.trim() || !selected) return;
+    const now = new Date();
+    const dateStr = `${now.getFullYear()}.${String(now.getMonth()+1).padStart(2,"0")}.${String(now.getDate()).padStart(2,"0")} ${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`;
+    const newComment: NoticeComment = {
+      id: Date.now(),
+      noticeId: selected.id,
+      author: "김인사",
+      avatar: "김HR",
+      dept: "인사팀",
+      content: commentInput.trim(),
+      date: dateStr,
+      likes: 0,
+      likedByMe: false,
+    };
+    setComments((prev) => [...prev, newComment]);
+    setCommentInput("");
+    toast.success("댓글이 등록되었습니다");
+  };
+
+  const handleAddReply = (parentId: number) => {
+    if (!replyInput.trim() || !selected) return;
+    const now = new Date();
+    const dateStr = `${now.getFullYear()}.${String(now.getMonth()+1).padStart(2,"0")}.${String(now.getDate()).padStart(2,"0")} ${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`;
+    const reply: NoticeComment = {
+      id: Date.now(),
+      noticeId: selected.id,
+      author: "김인사",
+      avatar: "김HR",
+      dept: "인사팀",
+      content: replyInput.trim(),
+      date: dateStr,
+      likes: 0,
+      likedByMe: false,
+    };
+    setComments((prev) => prev.map((c) =>
+      c.id === parentId ? { ...c, replies: [...(c.replies ?? []), reply] } : c
+    ));
+    setReplyInput("");
+    setReplyTo(null);
+    toast.success("답글이 등록되었습니다");
+  };
+
+  const handleLike = (commentId: number) => {
+    setLikedComments((prev) => {
+      const next = new Set(prev);
+      if (next.has(commentId)) {
+        next.delete(commentId);
+        setComments((c) => c.map((cm) => cm.id === commentId ? { ...cm, likes: cm.likes - 1 } : cm));
+      } else {
+        next.add(commentId);
+        setComments((c) => c.map((cm) => cm.id === commentId ? { ...cm, likes: cm.likes + 1 } : cm));
+      }
+      return next;
+    });
+  };
+
+  const handleDeleteComment = (commentId: number) => {
+    setComments((prev) => prev.filter((c) => c.id !== commentId));
+    toast.success("댓글이 삭제되었습니다");
+  };
+
+  const selectedComments = selected ? comments.filter((c) => c.noticeId === selected.id) : [];
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
@@ -362,10 +467,177 @@ function NoticePanel() {
                 <Check size={13} />
                 열람 확인
               </Button>
-              <Button size="sm" variant="outline" className="rounded-xl text-xs"
-                onClick={() => toast.info("댓글 기능은 준비 중입니다")}>
-                댓글 달기
+              <Button size="sm" variant="outline" className="rounded-xl text-xs gap-1.5"
+                onClick={() => commentInputRef.current?.focus()}>
+                <MessageCircle size={12} />
+                댓글 {selectedComments.length > 0 && `(${selectedComments.length})`}
               </Button>
+            </div>
+
+            {/* ─── Comments Section ─── */}
+            <div className="mt-6 pt-5 border-t border-border">
+              <h4 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2">
+                <MessageCircle size={15} className="text-[var(--teal)]" />
+                댓글
+                {selectedComments.length > 0 && (
+                  <span className="text-xs font-bold px-2 py-0.5 rounded-full text-white" style={{ background: "var(--teal)" }}>
+                    {selectedComments.length}
+                  </span>
+                )}
+              </h4>
+
+              {/* Comment List */}
+              {selectedComments.length === 0 ? (
+                <div className="py-6 text-center">
+                  <MessageCircle size={28} className="mx-auto text-muted-foreground/25 mb-2" />
+                  <p className="text-xs text-muted-foreground">첫 댓글을 남겨보세요</p>
+                </div>
+              ) : (
+                <div className="space-y-3 mb-4">
+                  {selectedComments.map((comment) => (
+                    <div key={comment.id}>
+                      {/* Comment Item */}
+                      <div className="flex gap-2.5">
+                        <Avatar className="w-7 h-7 shrink-0 mt-0.5">
+                          <AvatarFallback className="text-[10px] font-bold text-white" style={{ background: "var(--teal)" }}>
+                            {comment.avatar}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1 min-w-0">
+                          <div className="bg-muted/50 rounded-xl px-3 py-2.5">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-xs font-semibold text-foreground">{comment.author}</span>
+                              <span className="text-[10px] text-muted-foreground/70 px-1.5 py-0.5 bg-background rounded-full">{comment.dept}</span>
+                            </div>
+                            <p className="text-xs text-foreground leading-relaxed">{comment.content}</p>
+                          </div>
+                          <div className="flex items-center gap-3 mt-1 ml-1">
+                            <span className="text-[10px] text-muted-foreground">{comment.date}</span>
+                            <button
+                              className={cn(
+                                "flex items-center gap-1 text-[10px] transition-colors",
+                                likedComments.has(comment.id) ? "text-[var(--coral)] font-semibold" : "text-muted-foreground hover:text-[var(--coral)]"
+                              )}
+                              onClick={() => handleLike(comment.id)}
+                            >
+                              <ThumbsUp size={11} />
+                              {comment.likes > 0 && comment.likes}
+                            </button>
+                            <button
+                              className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-[var(--teal)] transition-colors"
+                              onClick={() => setReplyTo(replyTo === comment.id ? null : comment.id)}
+                            >
+                              <Reply size={11} />
+                              답글
+                            </button>
+                            {comment.author === "김인사" && (
+                              <button
+                                className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-destructive transition-colors"
+                                onClick={() => handleDeleteComment(comment.id)}
+                              >
+                                <Trash2 size={11} />
+                                삭제
+                              </button>
+                            )}
+                          </div>
+
+                          {/* Reply Input */}
+                          {replyTo === comment.id && (
+                            <div className="mt-2 flex gap-2">
+                              <div className="flex-1 flex items-center gap-2 bg-muted rounded-xl px-3 py-2">
+                                <input
+                                  type="text"
+                                  placeholder="답글을 입력하세요..."
+                                  value={replyInput}
+                                  onChange={(e) => setReplyInput(e.target.value)}
+                                  onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing) handleAddReply(comment.id); }}
+                                  autoFocus
+                                  className="flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground/60"
+                                />
+                                <button
+                                  onClick={() => handleAddReply(comment.id)}
+                                  disabled={!replyInput.trim()}
+                                  className="text-[var(--teal)] disabled:opacity-30 transition-opacity"
+                                >
+                                  <Send size={13} />
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Replies */}
+                          {(comment.replies ?? []).length > 0 && (
+                            <div className="mt-2 ml-3 space-y-2 border-l-2 border-[var(--teal-light)] pl-3">
+                              {(comment.replies ?? []).map((reply) => (
+                                <div key={reply.id} className="flex gap-2">
+                                  <Avatar className="w-6 h-6 shrink-0 mt-0.5">
+                                    <AvatarFallback className="text-[9px] font-bold text-white" style={{ background: "var(--teal-dark)" }}>
+                                      {reply.avatar}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                  <div className="flex-1">
+                                    <div className="bg-muted/40 rounded-lg px-2.5 py-2">
+                                      <div className="flex items-center gap-1.5 mb-0.5">
+                                        <span className="text-[11px] font-semibold text-foreground">{reply.author}</span>
+                                        <span className="text-[9px] text-muted-foreground/70 px-1 py-0.5 bg-background rounded-full">{reply.dept}</span>
+                                      </div>
+                                      <p className="text-[11px] text-foreground">{reply.content}</p>
+                                    </div>
+                                    <span className="text-[10px] text-muted-foreground ml-1">{reply.date}</span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Comment Input */}
+              <div className="flex gap-2.5 mt-3">
+                <Avatar className="w-7 h-7 shrink-0 mt-1">
+                  <AvatarFallback className="text-[10px] font-bold text-white" style={{ background: "var(--teal)" }}>
+                    김HR
+                  </AvatarFallback>
+                </Avatar>
+                <div className="flex-1">
+                  <div className={cn(
+                    "flex items-end gap-2 rounded-xl border transition-all px-3 py-2",
+                    commentInput ? "border-[var(--teal)] ring-2 ring-[var(--teal)]/20" : "border-border bg-muted/30"
+                  )}>
+                    <textarea
+                      ref={commentInputRef}
+                      placeholder="질문이나 의견을 남겨보세요... (Enter로 등록)"
+                      value={commentInput}
+                      onChange={(e) => setCommentInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                          e.preventDefault();
+                          handleAddComment();
+                        }
+                      }}
+                      rows={commentInput.split("\n").length > 1 ? 3 : 1}
+                      className="flex-1 bg-transparent text-xs outline-none resize-none placeholder:text-muted-foreground/60 leading-relaxed"
+                    />
+                    <button
+                      onClick={handleAddComment}
+                      disabled={!commentInput.trim()}
+                      className={cn(
+                        "shrink-0 w-7 h-7 rounded-lg flex items-center justify-center transition-all mb-0.5",
+                        commentInput.trim()
+                          ? "bg-[var(--teal)] text-white hover:opacity-90"
+                          : "bg-muted text-muted-foreground/40"
+                      )}
+                    >
+                      <Send size={13} />
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground/60 mt-1 ml-1">Enter로 등록 · Shift+Enter로 줄바꿈</p>
+                </div>
+              </div>
             </div>
           </div>
         ) : (
