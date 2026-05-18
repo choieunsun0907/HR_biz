@@ -377,6 +377,176 @@ function vitePluginAuthApi(): Plugin {
   };
 }
 
+// =============================================================================
+// Admin Users API Plugin - /api/admin/users/* 처리 (관리자 계정 관리)
+// =============================================================================
+function vitePluginAdminUsersApi(): Plugin {
+  const COOKIE_NAME = "tp_auth";
+  const JWT_SECRET = process.env.JWT_SECRET || "teampulse-secret-key";
+  const DATABASE_URL = process.env.DATABASE_URL;
+
+  let _pool: any = null;
+  async function getPool() {
+    if (_pool) return _pool;
+    if (!DATABASE_URL) return null;
+    const mysql = await import("mysql2/promise");
+    _pool = mysql.createPool(DATABASE_URL);
+    return _pool;
+  }
+
+  function parseCookies(cookieHeader: string): Record<string, string> {
+    const cookies: Record<string, string> = {};
+    if (!cookieHeader) return cookies;
+    cookieHeader.split(";").forEach((part) => {
+      const [k, ...v] = part.trim().split("=");
+      if (k) cookies[k.trim()] = decodeURIComponent(v.join("="));
+    });
+    return cookies;
+  }
+
+  function readBody(req: any): Promise<any> {
+    return new Promise((resolve) => {
+      const existing = (req as any).body;
+      if (existing && typeof existing === "object") { resolve(existing); return; }
+      let raw = "";
+      req.on("data", (chunk: Buffer) => { raw += chunk.toString(); });
+      req.on("end", () => { try { resolve(JSON.parse(raw)); } catch { resolve({}); } });
+    });
+  }
+
+  function sendJson(res: any, status: number, data: unknown) {
+    const body = JSON.stringify(data);
+    res.writeHead(status, { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) });
+    res.end(body);
+  }
+
+  async function verifyAdmin(req: any): Promise<any | null> {
+    try {
+      const cookies = parseCookies(req.headers.cookie || "");
+      const token = cookies[COOKIE_NAME];
+      if (!token) return null;
+      const jwtMod = await import("jsonwebtoken");
+      const jwt = (jwtMod.default ?? jwtMod) as any;
+      const decoded = jwt.verify(token, JWT_SECRET) as any;
+      if (decoded.role !== "admin") return null;
+      return decoded;
+    } catch { return null; }
+  }
+
+  return {
+    name: "manus-admin-users-api",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/admin/users", async (req: any, res: any, next: any) => {
+        const url = (req.url as string) || "/";
+        const method = req.method as string;
+
+        // GET /api/admin/users — 전체 사용자 목록
+        if ((url === "/" || url === "") && method === "GET") {
+          const admin = await verifyAdmin(req);
+          if (!admin) return sendJson(res, 403, { error: "관리자 권한이 필요합니다." });
+          try {
+            const db = await getPool();
+            const [rows] = await db.execute(
+              "SELECT id, email, name, role, department, position, is_active, created_at FROM tp_users ORDER BY created_at DESC"
+            );
+            return sendJson(res, 200, { users: rows });
+          } catch (e: any) {
+            console.error("[admin-users] list error:", e.message);
+            return sendJson(res, 500, { error: "서버 오류" });
+          }
+        }
+
+        // POST /api/admin/users — 새 계정 생성
+        if ((url === "/" || url === "") && method === "POST") {
+          const admin = await verifyAdmin(req);
+          if (!admin) return sendJson(res, 403, { error: "관리자 권한이 필요합니다." });
+          try {
+            const body = await readBody(req);
+            const { email, name, password, role, department, position } = body as any;
+            if (!email || !name || !password) return sendJson(res, 400, { error: "이메일, 이름, 비밀번호는 필수입니다." });
+            if (!email.includes("@")) return sendJson(res, 400, { error: "올바른 이메일 형식을 입력해주세요." });
+            if (password.length < 6) return sendJson(res, 400, { error: "비밀번호는 6자 이상이어야 합니다." });
+            const db = await getPool();
+            const [existing] = await db.execute("SELECT id FROM tp_users WHERE email = ? LIMIT 1", [email]);
+            if ((existing as any[]).length > 0) return sendJson(res, 409, { error: "이미 사용 중인 이메일입니다." });
+            const bcryptMod = await import("bcryptjs");
+            const bcrypt = (bcryptMod.default ?? bcryptMod) as any;
+            const hashed = await bcrypt.hash(password, 10);
+            const [result] = await db.execute(
+              "INSERT INTO tp_users (email, name, password, role, department, position, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)",
+              [email, name, hashed, role || "employee", department || null, position || null]
+            ) as any;
+            return sendJson(res, 201, { id: result.insertId, email, name, role: role || "employee", department: department || null, position: position || null, is_active: 1 });
+          } catch (e: any) {
+            console.error("[admin-users] create error:", e.message);
+            return sendJson(res, 500, { error: "서버 오류" });
+          }
+        }
+
+        // PATCH /api/admin/users/:id — 역할/부서/직책/활성화 변경
+        const patchMatch = url.match(/^\/([0-9]+)$/);
+        if (patchMatch && method === "PATCH") {
+          const admin = await verifyAdmin(req);
+          if (!admin) return sendJson(res, 403, { error: "관리자 권한이 필요합니다." });
+          const targetId = parseInt(patchMatch[1]);
+          try {
+            const body = await readBody(req);
+            const db = await getPool();
+            // 자기 자신의 역할/활성화 변경 방지
+            if (targetId === admin.id && (body.role !== undefined || body.is_active !== undefined)) {
+              return sendJson(res, 400, { error: "자신의 역할이나 활성화 상태는 변경할 수 없습니다." });
+            }
+            const allowed = ["role", "department", "position", "name", "is_active"] as const;
+            const sets: string[] = [];
+            const vals: any[] = [];
+            for (const key of allowed) {
+              if (body[key] !== undefined) {
+                sets.push(`${key} = ?`);
+                vals.push(body[key]);
+              }
+            }
+            if (sets.length === 0) return sendJson(res, 400, { error: "변경할 항목이 없습니다." });
+            vals.push(targetId);
+            await db.execute(`UPDATE tp_users SET ${sets.join(", ")} WHERE id = ?`, vals);
+            const [updated] = await db.execute(
+              "SELECT id, email, name, role, department, position, is_active, created_at FROM tp_users WHERE id = ? LIMIT 1",
+              [targetId]
+            );
+            return sendJson(res, 200, { user: (updated as any[])[0] });
+          } catch (e: any) {
+            console.error("[admin-users] patch error:", e.message);
+            return sendJson(res, 500, { error: "서버 오류" });
+          }
+        }
+
+        // PATCH /api/admin/users/:id/reset-password — 비밀번호 초기화
+        const resetMatch = url.match(/^\/([0-9]+)\/reset-password$/);
+        if (resetMatch && method === "PATCH") {
+          const admin = await verifyAdmin(req);
+          if (!admin) return sendJson(res, 403, { error: "관리자 권한이 필요합니다." });
+          const targetId = parseInt(resetMatch[1]);
+          try {
+            const body = await readBody(req);
+            const { newPassword } = body as { newPassword: string };
+            if (!newPassword || newPassword.length < 6) return sendJson(res, 400, { error: "비밀번호는 6자 이상이어야 합니다." });
+            const bcryptMod = await import("bcryptjs");
+            const bcrypt = (bcryptMod.default ?? bcryptMod) as any;
+            const hashed = await bcrypt.hash(newPassword, 10);
+            const db = await getPool();
+            await db.execute("UPDATE tp_users SET password = ? WHERE id = ?", [hashed, targetId]);
+            return sendJson(res, 200, { success: true });
+          } catch (e: any) {
+            console.error("[admin-users] reset-password error:", e.message);
+            return sendJson(res, 500, { error: "서버 오류" });
+          }
+        }
+
+        next();
+      });
+    },
+  };
+}
+
 const plugins = [
   react(),
   tailwindcss(),
@@ -385,6 +555,7 @@ const plugins = [
   vitePluginManusDebugCollector(),
   vitePluginStorageProxy(),
   vitePluginAuthApi(),
+  vitePluginAdminUsersApi(),
 ];
 
 export default defineConfig({

@@ -9,7 +9,7 @@
  * 4. 회사 정보
  */
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import {
   CalendarDays,
   Bell,
@@ -29,6 +29,16 @@ import {
   TrendingUp,
   TrendingDown,
   Minus,
+  Users,
+  Shield,
+  KeyRound,
+  UserPlus,
+  UserX,
+  Eye,
+  EyeOff,
+  RefreshCw,
+  Pencil,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -54,6 +64,7 @@ import {
 const TABS = [
   { id: "leave",      label: "연차 정책",      icon: CalendarDays },
   { id: "transition", label: "전환 시뮬레이션", icon: ArrowRightLeft },
+  { id: "accounts",   label: "계정 관리",       icon: Users },
   { id: "notification", label: "알림 설정",    icon: Bell },
   { id: "company",    label: "회사 정보",       icon: Building2 },
 ] as const;
@@ -829,6 +840,465 @@ function CompanyTab() {
   );
 }
 
+// ─── 계정 관리 탭 ────────────────────────────────────────────────────────────
+
+interface ManagedUser {
+  id: number;
+  email: string;
+  name: string;
+  role: "admin" | "employee";
+  department: string | null;
+  position: string | null;
+  is_active: number;
+  created_at: string;
+}
+
+interface CreateUserForm {
+  email: string;
+  name: string;
+  password: string;
+  role: "admin" | "employee";
+  department: string;
+  position: string;
+}
+
+function AccountsTab() {
+  const [users, setUsers] = useState<ManagedUser[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editUser, setEditUser] = useState<ManagedUser | null>(null);
+  const [resetUser, setResetUser] = useState<ManagedUser | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  // 계정 목록 로드
+  const loadUsers = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/admin/users/", { credentials: "include" });
+      const data = await res.json();
+      if (res.ok) setUsers(data.users);
+      else toast.error(data.error || "목록 로드 실패");
+    } catch {
+      toast.error("서버에 연결할 수 없습니다.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadUsers(); }, [loadUsers]);
+
+  // 계정 생성
+  const handleCreate = async (form: CreateUserForm) => {
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/admin/users/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(form),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error || "생성 실패"); return; }
+      toast.success(`${form.name} 계정이 생성되었습니다.`);
+      setCreateOpen(false);
+      loadUsers();
+    } catch { toast.error("서버 오류"); } finally { setSubmitting(false); }
+  };
+
+  // 계정 수정 (역할/부서/직책/이름)
+  const handlePatch = async (id: number, patch: Partial<ManagedUser>) => {
+    try {
+      const res = await fetch(`/api/admin/users/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(patch),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error || "수정 실패"); return; }
+      setUsers((prev) => prev.map((u) => u.id === id ? data.user : u));
+      return data.user;
+    } catch { toast.error("서버 오류"); }
+  };
+
+  // 활성화/비활성화 토글
+  const handleToggleActive = async (user: ManagedUser) => {
+    const next = user.is_active ? 0 : 1;
+    const result = await handlePatch(user.id, { is_active: next } as any);
+    if (result) toast.success(`${user.name} 계정이 ${next ? "활성화" : "비활성화"}되었습니다.`);
+  };
+
+  // 비밀번호 초기화
+  const handleResetPassword = async (user: ManagedUser, newPassword: string) => {
+    setSubmitting(true);
+    try {
+      const res = await fetch(`/api/admin/users/${user.id}/reset-password`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ newPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error || "초기화 실패"); return; }
+      toast.success(`${user.name}의 비밀번호가 초기화되었습니다.`);
+      setResetUser(null);
+    } catch { toast.error("서버 오류"); } finally { setSubmitting(false); }
+  };
+
+  const roleLabel = (role: string) => role === "admin" ? "관리자" : "직원";
+  const roleBadge = (role: string) =>
+    role === "admin"
+      ? "bg-amber-100 text-amber-700 border border-amber-200"
+      : "bg-teal-50 text-teal-700 border border-teal-200";
+
+  return (
+    <div className="space-y-4">
+      {/* 헤더 */}
+      <div className="bg-white rounded-2xl border border-border shadow-sm p-5">
+        <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center gap-3">
+            <Users size={18} className="text-[var(--teal)]" />
+            <h3 className="text-sm font-semibold text-foreground">계정 관리</h3>
+          </div>
+          <Button
+            size="sm"
+            className="gap-1.5 rounded-xl text-white text-xs"
+            style={{ background: "var(--teal)" }}
+            onClick={() => setCreateOpen(true)}
+          >
+            <UserPlus size={13} /> 새 계정 생성
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground ml-9">직원 계정을 생성하고 역할 및 상태를 관리합니다.</p>
+      </div>
+
+      {/* 계정 목록 */}
+      <div className="bg-white rounded-2xl border border-border shadow-sm overflow-hidden">
+        {loading ? (
+          <div className="flex items-center justify-center py-16 text-muted-foreground text-sm gap-2">
+            <RefreshCw size={16} className="animate-spin" /> 불러오는 중...
+          </div>
+        ) : users.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+            <Users size={32} className="mb-2 opacity-30" />
+            <p className="text-sm">등록된 계정이 없습니다.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-muted/30">
+                  <th className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground">이름</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground hidden sm:table-cell">이메일</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground hidden md:table-cell">부서 / 직책</th>
+                  <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground">역할</th>
+                  <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground">상태</th>
+                  <th className="text-right px-5 py-3 text-xs font-semibold text-muted-foreground">작업</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {users.map((user) => (
+                  <tr key={user.id} className={cn("transition-colors hover:bg-muted/20", !user.is_active && "opacity-50")}>
+                    <td className="px-5 py-3.5">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-full bg-teal-100 flex items-center justify-center text-teal-700 text-xs font-bold shrink-0">
+                          {user.name.charAt(0)}
+                        </div>
+                        <span className="font-medium text-foreground">{user.name}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3.5 text-muted-foreground hidden sm:table-cell">{user.email}</td>
+                    <td className="px-4 py-3.5 hidden md:table-cell">
+                      <span className="text-foreground">{user.department || "-"}</span>
+                      {user.position && <span className="text-muted-foreground text-xs ml-1">· {user.position}</span>}
+                    </td>
+                    <td className="px-4 py-3.5 text-center">
+                      <span className={cn("inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium", roleBadge(user.role))}>
+                        {user.role === "admin" ? <Shield size={10} /> : null}
+                        {roleLabel(user.role)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3.5 text-center">
+                      <span className={cn(
+                        "inline-block text-xs px-2 py-0.5 rounded-full font-medium",
+                        user.is_active ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-500"
+                      )}>
+                        {user.is_active ? "활성" : "비활성"}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3.5">
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          title="편집"
+                          onClick={() => setEditUser(user)}
+                          className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                          <Pencil size={13} />
+                        </button>
+                        <button
+                          title="비밀번호 초기화"
+                          onClick={() => setResetUser(user)}
+                          className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                          <KeyRound size={13} />
+                        </button>
+                        <button
+                          title={user.is_active ? "비활성화" : "활성화"}
+                          onClick={() => handleToggleActive(user)}
+                          className={cn(
+                            "p-1.5 rounded-lg transition-colors",
+                            user.is_active
+                              ? "hover:bg-red-50 text-muted-foreground hover:text-red-600"
+                              : "hover:bg-green-50 text-muted-foreground hover:text-green-600"
+                          )}
+                        >
+                          {user.is_active ? <UserX size={13} /> : <UserPlus size={13} />}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* 새 계정 생성 모달 */}
+      {createOpen && (
+        <CreateUserModal
+          onClose={() => setCreateOpen(false)}
+          onSubmit={handleCreate}
+          submitting={submitting}
+        />
+      )}
+
+      {/* 계정 편집 모달 */}
+      {editUser && (
+        <EditUserModal
+          user={editUser}
+          onClose={() => setEditUser(null)}
+          onSubmit={async (patch) => {
+            const result = await handlePatch(editUser.id, patch);
+            if (result) { toast.success("계정 정보가 수정되었습니다."); setEditUser(null); }
+          }}
+          submitting={submitting}
+        />
+      )}
+
+      {/* 비밀번호 초기화 모달 */}
+      {resetUser && (
+        <ResetPasswordModal
+          user={resetUser}
+          onClose={() => setResetUser(null)}
+          onSubmit={(pw) => handleResetPassword(resetUser, pw)}
+          submitting={submitting}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── 새 계정 생성 모달 ────────────────────────────────────────────────────────
+
+function CreateUserModal({
+  onClose, onSubmit, submitting,
+}: { onClose: () => void; onSubmit: (f: CreateUserForm) => void; submitting: boolean }) {
+  const [form, setForm] = useState<CreateUserForm>({
+    email: "", name: "", password: "", role: "employee", department: "", position: "",
+  });
+  const [showPw, setShowPw] = useState(false);
+
+  const set = (k: keyof CreateUserForm) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+    setForm((p) => ({ ...p, [k]: e.target.value }));
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <div className="flex items-center gap-2">
+            <UserPlus size={16} className="text-[var(--teal)]" />
+            <h2 className="text-sm font-semibold text-foreground">새 계정 생성</h2>
+          </div>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-muted text-muted-foreground"><X size={16} /></button>
+        </div>
+        <div className="px-6 py-5 space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-foreground mb-1">이름 <span className="text-red-500">*</span></label>
+              <input value={form.name} onChange={set("name")} placeholder="홍길동"
+                className="w-full text-sm border border-border rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-[var(--teal)]/30" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-foreground mb-1">역할</label>
+              <select value={form.role} onChange={set("role")}
+                className="w-full text-sm border border-border rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-[var(--teal)]/30 bg-white">
+                <option value="employee">직원</option>
+                <option value="admin">관리자</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-foreground mb-1">이메일 <span className="text-red-500">*</span></label>
+            <input type="email" value={form.email} onChange={set("email")} placeholder="example@ssakasports.com"
+              className="w-full text-sm border border-border rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-[var(--teal)]/30" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-foreground mb-1">초기 비밀번호 <span className="text-red-500">*</span></label>
+            <div className="relative">
+              <input type={showPw ? "text" : "password"} value={form.password} onChange={set("password")} placeholder="6자 이상"
+                className="w-full text-sm border border-border rounded-xl px-3 py-2 pr-9 outline-none focus:ring-2 focus:ring-[var(--teal)]/30" />
+              <button type="button" onClick={() => setShowPw((p) => !p)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+                {showPw ? <EyeOff size={14} /> : <Eye size={14} />}
+              </button>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-foreground mb-1">부서</label>
+              <input value={form.department} onChange={set("department")} placeholder="개발팀"
+                className="w-full text-sm border border-border rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-[var(--teal)]/30" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-foreground mb-1">직책</label>
+              <input value={form.position} onChange={set("position")} placeholder="선임 개발자"
+                className="w-full text-sm border border-border rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-[var(--teal)]/30" />
+            </div>
+          </div>
+        </div>
+        <div className="px-6 py-4 border-t border-border flex justify-end gap-2">
+          <Button variant="outline" size="sm" className="rounded-xl" onClick={onClose} disabled={submitting}>취소</Button>
+          <Button size="sm" className="rounded-xl text-white gap-1.5" style={{ background: "var(--teal)" }}
+            onClick={() => onSubmit(form)} disabled={submitting}>
+            {submitting ? <RefreshCw size={13} className="animate-spin" /> : <UserPlus size={13} />}
+            생성
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── 계정 편집 모달 ────────────────────────────────────────────────────────────
+
+function EditUserModal({
+  user, onClose, onSubmit, submitting,
+}: { user: ManagedUser; onClose: () => void; onSubmit: (p: Partial<ManagedUser>) => void; submitting: boolean }) {
+  const [form, setForm] = useState({
+    name: user.name,
+    role: user.role as "admin" | "employee",
+    department: user.department || "",
+    position: user.position || "",
+  });
+
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+    setForm((p) => ({ ...p, [k]: e.target.value }));
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <div className="flex items-center gap-2">
+            <Pencil size={16} className="text-[var(--teal)]" />
+            <h2 className="text-sm font-semibold text-foreground">{user.name} 계정 편집</h2>
+          </div>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-muted text-muted-foreground"><X size={16} /></button>
+        </div>
+        <div className="px-6 py-5 space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-foreground mb-1">이름</label>
+              <input value={form.name} onChange={set("name")}
+                className="w-full text-sm border border-border rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-[var(--teal)]/30" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-foreground mb-1">역할</label>
+              <select value={form.role} onChange={set("role")}
+                className="w-full text-sm border border-border rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-[var(--teal)]/30 bg-white">
+                <option value="employee">직원</option>
+                <option value="admin">관리자</option>
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-foreground mb-1">부서</label>
+              <input value={form.department} onChange={set("department")} placeholder="개발팀"
+                className="w-full text-sm border border-border rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-[var(--teal)]/30" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-foreground mb-1">직책</label>
+              <input value={form.position} onChange={set("position")} placeholder="선임 개발자"
+                className="w-full text-sm border border-border rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-[var(--teal)]/30" />
+            </div>
+          </div>
+          <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-700 flex items-start gap-2">
+            <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+            <span>역할을 관리자로 변경하면 모든 기능에 접근할 수 있습니다. 신중하게 설정해 주세요.</span>
+          </div>
+        </div>
+        <div className="px-6 py-4 border-t border-border flex justify-end gap-2">
+          <Button variant="outline" size="sm" className="rounded-xl" onClick={onClose} disabled={submitting}>취소</Button>
+          <Button size="sm" className="rounded-xl text-white gap-1.5" style={{ background: "var(--teal)" }}
+            onClick={() => onSubmit({ name: form.name, role: form.role, department: form.department || null, position: form.position || null } as any)}
+            disabled={submitting}>
+            {submitting ? <RefreshCw size={13} className="animate-spin" /> : <Save size={13} />}
+            저장
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── 비밀번호 초기화 모달 ──────────────────────────────────────────────────────
+
+function ResetPasswordModal({
+  user, onClose, onSubmit, submitting,
+}: { user: ManagedUser; onClose: () => void; onSubmit: (pw: string) => void; submitting: boolean }) {
+  const [pw, setPw] = useState("");
+  const [showPw, setShowPw] = useState(false);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <div className="flex items-center gap-2">
+            <KeyRound size={16} className="text-[var(--teal)]" />
+            <h2 className="text-sm font-semibold text-foreground">비밀번호 초기화</h2>
+          </div>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-muted text-muted-foreground"><X size={16} /></button>
+        </div>
+        <div className="px-6 py-5 space-y-4">
+          <p className="text-sm text-muted-foreground">
+            <span className="font-semibold text-foreground">{user.name}</span>의 비밀번호를 초기화합니다.
+          </p>
+          <div>
+            <label className="block text-xs font-medium text-foreground mb-1">새 비밀번호 <span className="text-red-500">*</span></label>
+            <div className="relative">
+              <input type={showPw ? "text" : "password"} value={pw} onChange={(e) => setPw(e.target.value)} placeholder="6자 이상"
+                className="w-full text-sm border border-border rounded-xl px-3 py-2 pr-9 outline-none focus:ring-2 focus:ring-[var(--teal)]/30" />
+              <button type="button" onClick={() => setShowPw((p) => !p)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+                {showPw ? <EyeOff size={14} /> : <Eye size={14} />}
+              </button>
+            </div>
+          </div>
+        </div>
+        <div className="px-6 py-4 border-t border-border flex justify-end gap-2">
+          <Button variant="outline" size="sm" className="rounded-xl" onClick={onClose} disabled={submitting}>취소</Button>
+          <Button size="sm" className="rounded-xl text-white gap-1.5" style={{ background: "var(--teal)" }}
+            onClick={() => onSubmit(pw)} disabled={submitting || pw.length < 6}>
+            {submitting ? <RefreshCw size={13} className="animate-spin" /> : <KeyRound size={13} />}
+            초기화
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
@@ -869,6 +1339,7 @@ export default function SettingsPage() {
           {/* Tab Content */}
           {activeTab === "leave"        && <LeavePolicyTab />}
           {activeTab === "transition"   && <TransitionSimulationTab />}
+          {activeTab === "accounts"     && <AccountsTab />}
           {activeTab === "notification" && <NotificationTab />}
           {activeTab === "company"      && <CompanyTab />}
         </div>
