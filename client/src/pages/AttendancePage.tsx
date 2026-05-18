@@ -6,7 +6,6 @@
  * [직원 뷰]
  *   - 스마트 연차 현황 (잔여/사용/총 연차)
  *   - 연차 신청 폼 (다이얼로그)
- *   - 모바일 외근 체크 (GPS 기반 시뮬레이션)
  *   - 경조사 지원 탭
  *   - 이번 달 근태 캘린더
  * [관리자 뷰]
@@ -19,7 +18,6 @@
 import { useState, useCallback } from "react";
 import {
   CalendarDays,
-  MapPin,
   Clock,
   CheckCircle2,
   XCircle,
@@ -28,7 +26,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Plus,
-  Navigation,
   Heart,
   Coffee,
   Briefcase,
@@ -145,12 +142,12 @@ const allLeaveRequests: LeaveRequest[] = [
 ];
 
 const deptAttendanceSummary = [
-  { dept: "개발팀", total: 12, present: 11, leave: 1, field: 2, rate: 97 },
-  { dept: "마케팅", total: 8, present: 7, leave: 1, field: 1, rate: 95 },
-  { dept: "디자인", total: 6, present: 6, leave: 0, field: 1, rate: 99 },
-  { dept: "영업팀", total: 10, present: 8, leave: 1, field: 4, rate: 94 },
-  { dept: "인사팀", total: 4, present: 4, leave: 0, field: 0, rate: 100 },
-  { dept: "재무팀", total: 5, present: 5, leave: 0, field: 0, rate: 96 },
+  { dept: "개발팀", total: 12, present: 11, leave: 1, rate: 97 },
+  { dept: "마케팅", total: 8, present: 7, leave: 1, rate: 95 },
+  { dept: "디자인", total: 6, present: 6, leave: 0, rate: 99 },
+  { dept: "영업팀", total: 10, present: 8, leave: 1, rate: 94 },
+  { dept: "인사팀", total: 4, present: 4, leave: 0, rate: 100 },
+  { dept: "재무팀", total: 5, present: 5, leave: 0, rate: 96 },
 ];
 
 const allEmployeeLeave = [
@@ -165,12 +162,6 @@ const allEmployeeLeave = [
   { name: "강다은", dept: "인사팀", total: 15, used: 0, pending: 0.5, remaining: 14.5, color: "oklch(0.65 0.14 185)" },
 ];
 
-const fieldCheckHistory = [
-  { date: "2025.05.15", location: "서울 강남구 테헤란로 152", checkIn: "09:12", checkOut: "18:35", status: "완료" },
-  { date: "2025.05.14", location: "경기 성남시 분당구 판교역로 235", checkIn: "09:45", checkOut: "17:20", status: "완료" },
-  { date: "2025.05.12", location: "서울 마포구 월드컵북로 396", checkIn: "10:00", checkOut: null, status: "미완료" },
-];
-
 const specialLeaveTypes = [
   { icon: Heart, label: "결혼", days: 5, color: "var(--coral)" },
   { icon: Heart, label: "배우자 출산", days: 10, color: "oklch(0.65 0.20 25)" },
@@ -180,8 +171,6 @@ const specialLeaveTypes = [
 
 const calendarData: Record<number, { type: string; label: string }> = {
   2: { type: "leave", label: "연차" },
-  14: { type: "field", label: "외근" },
-  15: { type: "field", label: "외근" },
   19: { type: "pending", label: "연차(대기)" },
   20: { type: "pending", label: "연차(대기)" },
   21: { type: "pending", label: "연차(대기)" },
@@ -333,7 +322,6 @@ function MiniCalendar() {
               "h-9 flex flex-col items-center justify-center rounded-lg text-xs font-medium cursor-pointer transition-all hover:scale-105",
               isToday && "ring-2 ring-[var(--teal)] ring-offset-1",
               info?.type === "leave" && "bg-[var(--teal)] text-white",
-              info?.type === "field" && "bg-[var(--teal-light)] text-[var(--teal-dark)]",
               info?.type === "pending" && "bg-amber-50 text-amber-600",
               !info && isWeekend && "text-muted-foreground/50",
               !info && !isWeekend && "text-foreground hover:bg-muted"
@@ -346,7 +334,6 @@ function MiniCalendar() {
       </div>
       <div className="flex items-center gap-3 mt-3 text-[11px] text-muted-foreground">
         <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-[var(--teal)] inline-block" />연차</span>
-        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-[var(--teal-light)] border border-[var(--teal)] inline-block" />외근</span>
         <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-amber-50 border border-amber-200 inline-block" />대기</span>
       </div>
     </div>
@@ -401,72 +388,6 @@ function LeaveRequestDialog() {
         </Button>
       </div>
     </DialogContent>
-  );
-}
-
-function FieldCheckPanel() {
-  const [isCheckedIn, setIsCheckedIn] = useState(false);
-  const [checkInTime, setCheckInTime] = useState<string | null>(null);
-  const [isLocating, setIsLocating] = useState(false);
-  const handleCheckIn = () => {
-    setIsLocating(true);
-    setTimeout(() => {
-      setIsLocating(false); setIsCheckedIn(true);
-      setCheckInTime(new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }));
-      toast.success("외근 시작이 기록되었습니다", { description: "서울 강남구 테헤란로 152 · GPS 인증 완료" });
-    }, 1500);
-  };
-  const handleCheckOut = () => {
-    setIsCheckedIn(false);
-    toast.success("외근 종료가 기록되었습니다", {
-      description: `근무 시간: ${checkInTime} ~ ${new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}`,
-    });
-    setCheckInTime(null);
-  };
-  return (
-    <div className="space-y-4">
-      <div className={cn("rounded-2xl p-5 border-2 transition-all", isCheckedIn ? "bg-[var(--teal-light)] border-[var(--teal)]" : "bg-white border-border")}>
-        <div className="flex items-center gap-4">
-          <div className={cn("w-14 h-14 rounded-2xl flex items-center justify-center", isCheckedIn ? "bg-[var(--teal)] text-white" : "bg-muted text-muted-foreground")}>
-            <Navigation size={24} className={isLocating ? "animate-pulse" : ""} />
-          </div>
-          <div className="flex-1">
-            <div className="font-semibold text-foreground">{isCheckedIn ? "외근 진행 중" : "외근 대기 중"}</div>
-            {isCheckedIn && checkInTime && <div className="text-sm text-[var(--teal-dark)] mt-0.5">시작: {checkInTime} · 서울 강남구 테헤란로 152</div>}
-            {!isCheckedIn && <div className="text-sm text-muted-foreground mt-0.5">GPS 위치 인증으로 외근을 시작하세요</div>}
-          </div>
-        </div>
-        <div className="mt-4">
-          {!isCheckedIn ? (
-            <Button className="w-full rounded-xl text-white gap-2" style={{ background: "var(--teal)" }} onClick={handleCheckIn} disabled={isLocating}>
-              <MapPin size={16} />{isLocating ? "위치 확인 중..." : "외근 시작"}
-            </Button>
-          ) : (
-            <Button variant="outline" className="w-full rounded-xl gap-2 border-[var(--coral)] text-[var(--coral)] hover:bg-[var(--coral-light)]" onClick={handleCheckOut}>
-              <Clock size={16} />외근 종료
-            </Button>
-          )}
-        </div>
-      </div>
-      <div>
-        <h3 className="text-sm font-semibold text-foreground mb-3">최근 외근 기록</h3>
-        <div className="space-y-2">
-          {fieldCheckHistory.map((item, i) => (
-            <div key={i} className="flex items-center gap-3 p-3 bg-white rounded-xl border border-border">
-              <div className={cn("w-2 h-2 rounded-full shrink-0", item.status === "완료" ? "bg-[var(--teal)]" : "bg-amber-400")} />
-              <div className="flex-1 min-w-0">
-                <div className="text-xs font-medium text-foreground truncate">{item.location}</div>
-                <div className="text-[11px] text-muted-foreground mt-0.5">{item.date} · {item.checkIn} ~ {item.checkOut ?? "미완료"}</div>
-              </div>
-              <span className={cn("text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0",
-                item.status === "완료" ? "bg-[var(--teal-light)] text-[var(--teal-dark)]" : "bg-amber-50 text-amber-600")}>
-                {item.status}
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -554,7 +475,6 @@ function EmployeeView() {
           <Tabs defaultValue="history">
             <TabsList className="bg-muted rounded-xl p-1 mb-5">
               <TabsTrigger value="history" className="rounded-lg text-sm">연차 내역</TabsTrigger>
-              <TabsTrigger value="field" className="rounded-lg text-sm">외근 체크</TabsTrigger>
               <TabsTrigger value="special" className="rounded-lg text-sm">경조사 지원</TabsTrigger>
             </TabsList>
 
@@ -588,13 +508,6 @@ function EmployeeView() {
                     </div>
                   ))}
                 </div>
-              </div>
-            </TabsContent>
-
-            <TabsContent value="field">
-              <div className="bg-[oklch(0.975_0.005_220)] rounded-2xl p-5">
-                <h2 className="section-title mb-4">모바일 외근 체크</h2>
-                <FieldCheckPanel />
               </div>
             </TabsContent>
 
@@ -661,7 +574,6 @@ function AdminView() {
         {[
           { label: "승인 대기", value: pendingCount, icon: AlertCircle, color: "text-amber-500", bg: "bg-amber-50" },
           { label: "오늘 연차자", value: 3, icon: CalendarDays, color: "text-[var(--teal-dark)]", bg: "bg-[var(--teal-light)]" },
-          { label: "오늘 외근자", value: 8, icon: MapPin, color: "text-[var(--coral)]", bg: "bg-[var(--coral-light)]" },
           { label: "이번 달 승인", value: requests.filter((r) => r.status === "승인").length, icon: CheckCircle2, color: "text-emerald-600", bg: "bg-emerald-50" },
         ].map((card) => (
           <div key={card.label} className="bg-white rounded-2xl p-4 shadow-sm border border-border">
@@ -703,7 +615,6 @@ function AdminView() {
                   </div>
                   <div className="flex gap-2 mt-1 text-[10px] text-muted-foreground">
                     {dept.leave > 0 && <span className="text-[var(--teal-dark)]">연차 {dept.leave}명</span>}
-                    {dept.field > 0 && <span className="text-[var(--coral)]">외근 {dept.field}명</span>}
                   </div>
                 </div>
               ))}
