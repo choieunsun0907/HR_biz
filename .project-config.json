@@ -1,15 +1,22 @@
 {
   "build_command": "pnpm run build",
-  "capabilities": [],
+  "capabilities": [
+    "db",
+    "server",
+    "user"
+  ],
   "dev_command": "pnpm run dev",
-  "env_vars": {},
+  "env_vars": {
+    "DATABASE_URL": "mysql://3ADfbUX2GsTFAC8.670e006e99ca:KuQT8cR4m99L76mswMlZ@gateway06.us-east-1.prod.aws.tidbcloud.com:4000/Dxy8osoNhSuWMjC3FhR7X2?ssl={\"rejectUnauthorized\":true}",
+    "DRIZZLE_DATABASE_URL": "mysql://3ADfbUX2GsTFAC8.670e006e99ca:KuQT8cR4m99L76mswMlZ@gateway06.us-east-1.prod.aws.tidbcloud.com:4000/Dxy8osoNhSuWMjC3FhR7X2?ssl={\"rejectUnauthorized\":true}"
+  },
   "experiments": null,
   "git_remote": {
     "repo_url": "s3://vida-prod-gitrepo/webdev-git/310519663034300302/Dxy8osoNhSuWMjC3FhR7X2",
-    "access_key_id": "ASIAZV3A2ECZDC7G2RB4",
-    "secret_access_key": "YeVMcXun5L9MtPByV5ZNg6BLJD0TsG8cpSF+ONUx",
-    "session_token": "IQoJb3JpZ2luX2VjEKH//////////wEaCXVzLWVhc3QtMSJGMEQCICLj/lfhU/p0u98zh2VrG9BqB7lBXNIxMD+it3RwIz5eAiAfplo8MrGn8T3t0/QF0kLqEhIBM/JFJ07xmEuujNNVgSr2AwhqEAQaDDY2NTM4NjA5ODg2NiIMtMOCUL6mZNksPR+vKtMDlG0NPsU4/uZA7RZz9oAGQBj+oyy7pVCZaPrwyayXEUcKRotDP02GCeEoVQV454btH7RGW1W2fqgE6D0wpspL8azhOTa901/P1E4to1JVV99PYDMgTNogMGmHBcwsxqlGxzsoblNR1sbaS/jO8JSL/zkdmRaXYuikTElgYpFVS2sJ5qs1OIOWgIN2kIjjL4OgDzSO0qw6cudxV41N6hHFQu2zSdhys/vwoGXVkp5P/iKNUeDip5EKzxC7OBFRrKBm2N4/tgqEmIPN/tRH5Mrd1r5Nhygzg9g00rG47WMmrMW8S/AtUH5PoNn0/mHKNX1IS3LpHIUOXjmXGn0vGgIJT51QiOxv6Dxh5Oj4QNFRLyR/01sI8RLSQ4xo2fHGWI02TB+mY4MQll7pr5C2jdesWDoDe23nWsljStuqK1N97bDru3F6l0XncXmNNUjIStgfnn+FpNykwGvblAnSOng9IFIsIy0pAgR0h+Or+MQ7fBZiKvzgP+lMJlMzEgKISiXnwX+zJqIyPbuNzLZu7ugDysCcQy/+L4w0NVuYt92vSaVxo5JJNXGxH2v7TyJO4qxL6sRJQ51IkQt8bg2TWra1yReHj5amc+rmdILtJgTNwhRCoXYwuNyZ0AY6ngGYkqtjYDUR42+Lt1ioQn/WiaDspTre/CqT+vg6k3Ypf4SViNdr70nAIKdU90oI9Hw3tSap0zWLQ8Ucmq1N/gdC9AhaMkmO/o6RJL9QOeSBlWwc7G9Rm7KKaRth3srwGe+GkgeWw0Ct/1Z5Mg8VnlUDX07hDVdBH8nU6ijzq4sujhRm5oSvCNyL8Dah09eoAXijELjU9Zr3UpyItn7w8g==",
-    "expiration": "2026-05-15T12:52:08.000Z"
+    "access_key_id": "ASIAZV3A2ECZOPFOJRKG",
+    "secret_access_key": "OBX0CrjVXH2EZVs3XYWH9Z0avHPgRP1fuEc5wz6l",
+    "session_token": "IQoJb3JpZ2luX2VjEO7//////////wEaCXVzLWVhc3QtMSJGMEQCIHBWD5vI9ei3Ppf4xCkYaSjLwUK2dRCagKux5Dkj/9vFAiAN/pe2viFMcPk/Nv58d1cHfFcg0of+9I69YvLWI6ZWryr/Awi3//////////8BEAQaDDY2NTM4NjA5ODg2NiIMUGbL/qoB0BjUa4BkKtMDwBCv/5rFgo4OkV1P36fXX1piSYvC6bY7wd41scyphSIfDUKDI9751KcZcNPqjFYrGwR9kAXGCx0lL0R+8ytupB9Nse/++s+vUvlmYI20rn2e7qFV2+YtjFCxzaZHSYe8Dp6XPJ2Mk2TvWOYUvEgs3bRofNE8V9OURuJ7kf7/C8UY6jwjXUaPfZIN44w1mMRB+e0lUHZ3Aw+lA18nxZu8tylYxwsZAENIPptx71OPUmgpJl32ZmA3HirhtOKF2gKR6Yc5KNhtz1uPPn7Yx/5sa6+lJZ84+3U4Zp0YpUd05Iexn2ccWyM/wNLpLtKz5lM6Ocxc7IbR7xeVk3BYOxvuxxJu1dWSC/MfSXsqi+Ogi9xq7PsbWNCMEOaip71HC/idL88s8oiIWOE14YZfs+LjWNyNGxmbA92NnDrt66SrUwp/6LCpW9HyAyAzy3fo44ZFcgCY3+/YKel61jGMh4gDeXqfCSxS9WGA5/tbnkI2RbRKhS8D942KdQBo4O/O+xU3A084PHaNzd3K+afQbaUHVcCP71yHWTUuIOaQI6OjqApFvaJeSPKMX841DoJ0GtStcQFlDNbg8H3IFKEl/ZFKgb629VfoqN2L4CGV93HLYJ5nvN4wlcaq0AY6ngE2XK/yqrZG2YfSvMSsP7HJzXcRwomASjYFLa0PupTI18PvNZUCaSOdSdj8+wegT/iVzyP+ulAlboyKSVzomtkoJGkxvRYJswry9ii/VrOPnLloH6pmGQbsJ7ydIr03TFt/dyVlrNNwlmCPvnn/e1ZiIZ1uGcZ3YHmi2syHxMr9eDSdcTf45EOgQUe1y30Pg3webXoqzRKRCrT8IWODAw==",
+    "expiration": "2026-05-18T17:26:45.000Z"
   },
   "name": "teampulse",
   "path": "/home/ubuntu/teampulse",
@@ -24,7 +31,7 @@
     "VITE_ANALYTICS_ENDPOINT": "https://manus-analytics.com",
     "VITE_ANALYTICS_WEBSITE_ID": "08362c53-0ee5-4301-b056-e038fba17979",
     "VITE_APP_ID": "Dxy8osoNhSuWMjC3FhR7X2",
-    "VITE_APP_LOGO": "",
+    "VITE_APP_LOGO": "https://files.manuscdn.com/user_upload_by_module/web_dev_logo/310519663034300302/OpmNJHmJPFXcsKDg.png",
     "VITE_APP_TITLE": "TeamPulse - HR Management Platform",
     "VITE_FRONTEND_FORGE_API_KEY": "eK4rhEc7uagrm9uasT4ydj",
     "VITE_FRONTEND_FORGE_API_URL": "https://forge.manus.ai",
