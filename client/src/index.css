@@ -251,3 +251,76 @@
 .stagger > *:nth-child(4) { animation-delay: 150ms; }
 .stagger > *:nth-child(5) { animation-delay: 200ms; }
 .stagger > *:nth-child(6) { animation-delay: 250ms; }
+
+/* ─── Print Styles ─────────────────────────────────────────────────────────── */
+@media print {
+  /* 기본 리셋 */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  body {
+    background: #fff !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* 사이드바 완전 숨김 */
+  .print-hide {
+    display: none !important;
+  }
+
+  /* 인쇄 전용 헤더 표시 */
+  .print-only {
+    display: block !important;
+  }
+
+  /* 인쇄 영역 전체 너비 */
+  .print-full {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  /* 조직도 트리 컨테이너 */
+  .print-org-tree {
+    overflow: visible !important;
+    height: auto !important;
+    transform: none !important;
+    page-break-inside: avoid;
+  }
+
+  /* 페이지 여백 설정 */
+  @page {
+    size: A3 landscape;
+    margin: 12mm 10mm;
+  }
+
+  /* 스크롤바 숨김 */
+  ::-webkit-scrollbar {
+    display: none !important;
+  }
+
+  /* 애니메이션 비활성화 */
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  /* 버튼, 입력 요소 숨김 */
+  button:not(.print-show),
+  input,
+  select {
+    display: none !important;
+  }
+
+  /* 링크 밑줄 제거 */
+  a {
+    text-decoration: none !important;
+    color: inherit !important;
+  }
+}

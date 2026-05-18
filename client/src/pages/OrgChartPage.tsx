@@ -862,9 +862,27 @@ export default function OrgChartPage() {
   }), [employees]);
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden page-enter">
+    <div className="flex-1 flex flex-col overflow-hidden page-enter print:block print:overflow-visible">
+      {/* 인쇄 전용 헤더 (화면에서는 숨김) */}
+      <div className="print-only hidden px-6 py-4 border-b-2 mb-4" style={{ borderColor: "var(--teal)" }}>
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-xl font-bold" style={{ color: "var(--teal)" }}>싸카스포츠 조직도</div>
+            <div className="text-sm text-gray-500 mt-0.5">
+              {new Date().toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric" })} 기준
+            </div>
+          </div>
+          <div className="flex gap-6 text-sm">
+            <span><strong>총 인원</strong> {stats.total}명</span>
+            <span><strong>부서</strong> {stats.depts}개</span>
+            <span><strong>팀장 이상</strong> {stats.heads}명</span>
+            <span><strong>평균 참여</strong> {stats.avgScore}점</span>
+          </div>
+        </div>
+      </div>
+
       {/* 헤더 */}
-      <div className="px-5 lg:px-7 pt-5 lg:pt-7 pb-4 bg-[oklch(0.975_0.005_220)] border-b border-border shrink-0">
+      <div className="px-5 lg:px-7 pt-5 lg:pt-7 pb-4 bg-[oklch(0.975_0.005_220)] border-b border-border shrink-0 print-hide">
         <div className="flex items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-foreground tracking-tight">조직도</h1>
@@ -1017,10 +1035,10 @@ export default function OrgChartPage() {
       </div>
 
       {/* 본문 */}
-      <div className="flex-1 flex overflow-hidden">
-        <div className="flex-1 overflow-auto">
+      <div className="flex-1 flex overflow-hidden print:block print:overflow-visible">
+        <div className="flex-1 overflow-auto print:overflow-visible print-org-tree">
           {viewMode === "tree" ? (
-            <div ref={treeRef} className="min-w-max p-8 origin-top-left transition-transform duration-200"
+            <div ref={treeRef} className="min-w-max p-8 origin-top-left transition-transform duration-200 print:transform-none print:scale-100"
               style={{ transform: `scale(${zoom})` }}>
               {/* CEO */}
               <div className="flex flex-col items-center mb-8">
@@ -1078,24 +1096,29 @@ export default function OrgChartPage() {
 
         {/* 변경 이력 패널 */}
         {showHistory && editMode && (
+          <div className="print-hide contents">
           <HistoryPanel
             history={moveHistory}
             onUndo={handleUndo}
             onClose={() => setShowHistory(false)}
           />
+          </div>
         )}
 
         {/* 상세 패널 */}
         {selectedEmp && !showHistory && (
+          <div className="print-hide contents">
           <DetailPanel
             emp={selectedEmp}
             employees={employees}
             onClose={() => setSelectedEmp(null)}
           />
+          </div>
         )}
       </div>
 
       {/* 이동 확인 모달 */}
+      <div className="print-hide">
       {pendingMove && (() => {
         const targetHead = getDeptHead(employees, pendingMove.targetDept.name);
         if (!targetHead) return null;
@@ -1109,6 +1132,7 @@ export default function OrgChartPage() {
           />
         );
       })()}
+      </div>
     </div>
   );
 }

@@ -159,22 +159,22 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   );
 
   return (
-    <div className="flex h-screen bg-[oklch(0.975_0.005_220)] overflow-hidden">
+    <div className="flex h-screen bg-[oklch(0.975_0.005_220)] overflow-hidden print:block print:h-auto print:overflow-visible">
       {/* Desktop Sidebar */}
-      <aside className="hidden lg:flex w-60 shrink-0 flex-col bg-white border-r border-border shadow-sm">
+      <aside className="hidden lg:flex w-60 shrink-0 flex-col bg-white border-r border-border shadow-sm print-hide">
         <SidebarContent />
       </aside>
 
       {/* Mobile Sidebar Overlay */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 z-40 bg-black/30 lg:hidden"
+          className="fixed inset-0 z-40 bg-black/30 lg:hidden print-hide"
           onClick={() => setSidebarOpen(false)}
         />
       )}
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 w-60 bg-white border-r border-border shadow-lg transition-transform duration-300 lg:hidden",
+          "fixed inset-y-0 left-0 z-50 w-60 bg-white border-r border-border shadow-lg transition-transform duration-300 lg:hidden print-hide",
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
@@ -182,9 +182,9 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       </aside>
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 flex flex-col overflow-hidden print:block print:overflow-visible">
         {/* Top Header */}
-        <header className="h-14 bg-white border-b border-border flex items-center px-4 lg:px-6 gap-4 shrink-0">
+        <header className="h-14 bg-white border-b border-border flex items-center px-4 lg:px-6 gap-4 shrink-0 print-hide">
           <Button
             variant="ghost"
             size="icon"
@@ -223,7 +223,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         </header>
 
         {/* Page Content */}
-        <main className="flex-1 overflow-y-auto">
+        <main className="flex-1 overflow-y-auto print:overflow-visible print:h-auto">
           {children}
         </main>
       </div>
