@@ -869,6 +869,22 @@ function AccountsTab() {
   const [editUser, setEditUser] = useState<ManagedUser | null>(null);
   const [resetUser, setResetUser] = useState<ManagedUser | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [roleFilter, setRoleFilter] = useState<"all" | "admin" | "employee">("all");
+
+  // 검색 + 역할 필터링
+  const filteredUsers = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return users.filter((u) => {
+      const matchesQuery =
+        !q ||
+        u.name.toLowerCase().includes(q) ||
+        (u.department ?? "").toLowerCase().includes(q) ||
+        u.email.toLowerCase().includes(q);
+      const matchesRole = roleFilter === "all" || u.role === roleFilter;
+      return matchesQuery && matchesRole;
+    });
+  }, [users, searchQuery, roleFilter]);
 
   // 계정 목록 로드
   const loadUsers = useCallback(async () => {
@@ -970,6 +986,57 @@ function AccountsTab() {
           </Button>
         </div>
         <p className="text-xs text-muted-foreground ml-9">직원 계정을 생성하고 역할 및 상태를 관리합니다.</p>
+
+        {/* 검색 바 */}
+        <div className="mt-4 flex flex-col sm:flex-row gap-2">
+          <div className="relative flex-1">
+            <svg
+              className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none"
+              fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"
+            >
+              <circle cx={11} cy={11} r={8} /><path d="m21 21-4.35-4.35" />
+            </svg>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="이름, 부서, 이메일로 검색..."
+              className="w-full pl-8 pr-8 py-2 text-sm border border-border rounded-xl bg-slate-50 outline-none focus:ring-2 focus:ring-[var(--teal)]/30 focus:bg-white transition-all"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <X size={13} />
+              </button>
+            )}
+          </div>
+          <div className="flex gap-1.5">
+            {(["all", "admin", "employee"] as const).map((r) => (
+              <button
+                key={r}
+                onClick={() => setRoleFilter(r)}
+                className={cn(
+                  "px-3 py-2 rounded-xl text-xs font-medium border transition-all whitespace-nowrap",
+                  roleFilter === r
+                    ? "bg-[var(--teal)] text-white border-[var(--teal)] shadow-sm"
+                    : "bg-white text-muted-foreground border-border hover:border-[var(--teal)]/40 hover:text-foreground"
+                )}
+              >
+                {r === "all" ? "전체" : r === "admin" ? "관리자" : "직원"}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* 검색 결과 카운트 */}
+        {(searchQuery || roleFilter !== "all") && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            {filteredUsers.length}명 검색됨
+            {searchQuery && <span className="ml-1 text-[var(--teal)] font-medium">"{searchQuery}"</span>}
+          </p>
+        )}
       </div>
 
       {/* 계정 목록 */}
@@ -978,10 +1045,27 @@ function AccountsTab() {
           <div className="flex items-center justify-center py-16 text-muted-foreground text-sm gap-2">
             <RefreshCw size={16} className="animate-spin" /> 불러오는 중...
           </div>
-        ) : users.length === 0 ? (
+        ) : filteredUsers.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-            <Users size={32} className="mb-2 opacity-30" />
-            <p className="text-sm">등록된 계정이 없습니다.</p>
+            {users.length === 0 ? (
+              <>
+                <Users size={32} className="mb-2 opacity-30" />
+                <p className="text-sm">등록된 계정이 없습니다.</p>
+              </>
+            ) : (
+              <>
+                <svg className="w-8 h-8 mb-2 opacity-30" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                  <circle cx={11} cy={11} r={8} /><path d="m21 21-4.35-4.35" />
+                </svg>
+                <p className="text-sm">검색 결과가 없습니다.</p>
+                <button
+                  onClick={() => { setSearchQuery(""); setRoleFilter("all"); }}
+                  className="mt-2 text-xs text-[var(--teal)] hover:underline"
+                >
+                  검색 초기화
+                </button>
+              </>
+            )}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -997,7 +1081,7 @@ function AccountsTab() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {users.map((user) => (
+                {filteredUsers.map((user) => (
                   <tr key={user.id} className={cn("transition-colors hover:bg-muted/20", !user.is_active && "opacity-50")}>
                     <td className="px-5 py-3.5">
                       <div className="flex items-center gap-2.5">
