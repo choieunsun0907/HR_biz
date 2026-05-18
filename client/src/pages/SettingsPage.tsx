@@ -851,6 +851,7 @@ interface ManagedUser {
   position: string | null;
   is_active: number;
   created_at: string;
+  last_login_at: string | null;
 }
 
 interface CreateUserForm {
@@ -1077,6 +1078,8 @@ function AccountsTab() {
                   <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground hidden md:table-cell">부서 / 직책</th>
                   <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground">역할</th>
                   <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground">상태</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground hidden lg:table-cell">생성일</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground hidden xl:table-cell">마지막 로그인</th>
                   <th className="text-right px-5 py-3 text-xs font-semibold text-muted-foreground">작업</th>
                 </tr>
               </thead>
@@ -1109,6 +1112,25 @@ function AccountsTab() {
                       )}>
                         {user.is_active ? "활성" : "비활성"}
                       </span>
+                    </td>
+                    <td className="px-4 py-3.5 hidden lg:table-cell">
+                      <span className="text-xs text-muted-foreground">
+                        {user.created_at
+                          ? new Date(user.created_at).toLocaleDateString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit" })
+                          : "-"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3.5 hidden xl:table-cell">
+                      {user.last_login_at ? (
+                        <span className="text-xs text-foreground">
+                          {new Date(user.last_login_at).toLocaleString("ko-KR", {
+                            month: "2-digit", day: "2-digit",
+                            hour: "2-digit", minute: "2-digit",
+                          })}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground/50">로그인 이력 없음</span>
+                      )}
                     </td>
                     <td className="px-5 py-3.5">
                       <div className="flex items-center justify-end gap-1">

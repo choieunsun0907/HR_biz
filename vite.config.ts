@@ -307,6 +307,10 @@ function vitePluginAuthApi(): Plugin {
               position: user.position ?? null,
             };
             const token = jwt.sign(payload, JWT_SECRET, { expiresIn: "7d" });
+            // 마지막 로그인 시간 기록
+            try {
+              await db.execute("UPDATE tp_users SET last_login_at = NOW() WHERE id = ?", [user.id]);
+            } catch { /* non-critical */ }
             setCookieHeader(res, token);
             return sendJson(res, 200, { user: payload });
           } catch (e) {
@@ -447,7 +451,7 @@ function vitePluginAdminUsersApi(): Plugin {
           try {
             const db = await getPool();
             const [rows] = await db.execute(
-              "SELECT id, email, name, role, department, position, is_active, created_at FROM tp_users ORDER BY created_at DESC"
+              "SELECT id, email, name, role, department, position, is_active, created_at, last_login_at FROM tp_users ORDER BY created_at DESC"
             );
             return sendJson(res, 200, { users: rows });
           } catch (e: any) {
@@ -509,7 +513,7 @@ function vitePluginAdminUsersApi(): Plugin {
             vals.push(targetId);
             await db.execute(`UPDATE tp_users SET ${sets.join(", ")} WHERE id = ?`, vals);
             const [updated] = await db.execute(
-              "SELECT id, email, name, role, department, position, is_active, created_at FROM tp_users WHERE id = ? LIMIT 1",
+              "SELECT id, email, name, role, department, position, is_active, created_at, last_login_at FROM tp_users WHERE id = ? LIMIT 1",
               [targetId]
             );
             return sendJson(res, 200, { user: (updated as any[])[0] });
