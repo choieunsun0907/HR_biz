@@ -2,9 +2,9 @@
  * AttendancePage — TeamPulse Attendance & Leave Management
  * Design: Soft Teal Clarity
  * Features:
- * - 역할 전환 탭: 직원 뷰 / 관리자 뷰
+ * - 역할 기반 뷰: 직원(본인 데이터만) / 관리자(전체 데이터)
  * [직원 뷰]
- *   - 스마트 연차 현황 (잔여/사용/총 연차)
+ *   - 본인 연차 현황 (잔여/사용/총 연차)
  *   - 연차 신청 폼 (다이얼로그)
  *   - 경조사 지원 탭
  *   - 이번 달 근태 캘린더
@@ -45,6 +45,7 @@ import {
   Settings2,
   ChevronDown,
   ChevronUp,
+  Lock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -59,6 +60,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/contexts/AuthContext";
 
 // ─── Notification Context (shared between AdminView & Header Bell) ─────────────
 
@@ -120,15 +122,49 @@ interface LeaveRequest {
 
 // ─── Mock Data ────────────────────────────────────────────────────────────────
 
-const leaveBalance = { total: 15, used: 6, pending: 2, remaining: 7 };
+// 직원별 연차 데이터 (이름 기반 매핑)
+const employeeLeaveData: Record<string, {
+  total: number; used: number; pending: number; remaining: number;
+  history: LeaveRequest[];
+  calendarData: Record<number, { type: string; label: string }>;
+}> = {
+  "김직원": {
+    total: 15, used: 4, pending: 1, remaining: 10,
+    history: [
+      { id: 1, empName: "김직원", empDept: "개발팀", empAvatar: "김직", empColor: "var(--teal)", type: "연차", start: "2025.03.10", end: "2025.03.11", days: 2, status: "승인", reason: "개인 사유", appliedAt: "2025.03.07" },
+      { id: 2, empName: "김직원", empDept: "개발팀", empAvatar: "김직", empColor: "var(--teal)", type: "반차", start: "2025.04.05", end: "2025.04.05", days: 0.5, status: "승인", reason: "병원 방문", appliedAt: "2025.04.03" },
+      { id: 3, empName: "김직원", empDept: "개발팀", empAvatar: "김직", empColor: "var(--teal)", type: "연차", start: "2025.04.28", end: "2025.04.28", days: 1, status: "승인", reason: "개인 사유", appliedAt: "2025.04.25" },
+      { id: 4, empName: "김직원", empDept: "개발팀", empAvatar: "김직", empColor: "var(--teal)", type: "반차", start: "2025.05.19", end: "2025.05.19", days: 0.5, status: "승인", reason: "가족 행사", appliedAt: "2025.05.15" },
+      { id: 5, empName: "김직원", empDept: "개발팀", empAvatar: "김직", empColor: "var(--teal)", type: "연차", start: "2025.05.26", end: "2025.05.26", days: 1, status: "대기", reason: "개인 사유", appliedAt: "2025.05.18" },
+    ],
+    calendarData: {
+      19: { type: "leave", label: "반차" },
+      26: { type: "pending", label: "연차(대기)" },
+    },
+  },
+  "이준혁": {
+    total: 15, used: 6, pending: 3, remaining: 6,
+    history: [
+      { id: 1, empName: "이준혁", empDept: "개발팀", empAvatar: "이준", empColor: "oklch(0.65 0.14 185)", type: "연차", start: "2025.04.14", end: "2025.04.15", days: 2, status: "승인", reason: "개인 사유", appliedAt: "2025.04.10" },
+      { id: 2, empName: "이준혁", empDept: "개발팀", empAvatar: "이준", empColor: "oklch(0.65 0.14 185)", type: "반차", start: "2025.04.22", end: "2025.04.22", days: 0.5, status: "승인", reason: "병원 방문", appliedAt: "2025.04.20" },
+      { id: 3, empName: "이준혁", empDept: "개발팀", empAvatar: "이준", empColor: "oklch(0.65 0.14 185)", type: "연차", start: "2025.05.02", end: "2025.05.02", days: 1, status: "승인", reason: "개인 사유", appliedAt: "2025.04.29" },
+      { id: 4, empName: "이준혁", empDept: "개발팀", empAvatar: "이준", empColor: "oklch(0.65 0.14 185)", type: "연차", start: "2025.05.19", end: "2025.05.21", days: 3, status: "대기", reason: "가족 여행", appliedAt: "2025.05.10" },
+    ],
+    calendarData: {
+      2: { type: "leave", label: "연차" },
+      19: { type: "pending", label: "연차(대기)" },
+      20: { type: "pending", label: "연차(대기)" },
+      21: { type: "pending", label: "연차(대기)" },
+    },
+  },
+};
 
-const myLeaveHistory: LeaveRequest[] = [
-  { id: 1, empName: "나", empDept: "개발팀", empAvatar: "나", empColor: "var(--teal)", type: "연차", start: "2025.04.14", end: "2025.04.15", days: 2, status: "승인", reason: "개인 사유", appliedAt: "2025.04.10" },
-  { id: 2, empName: "나", empDept: "개발팀", empAvatar: "나", empColor: "var(--teal)", type: "반차", start: "2025.04.22", end: "2025.04.22", days: 0.5, status: "승인", reason: "병원 방문", appliedAt: "2025.04.20" },
-  { id: 3, empName: "나", empDept: "개발팀", empAvatar: "나", empColor: "var(--teal)", type: "연차", start: "2025.05.02", end: "2025.05.02", days: 1, status: "승인", reason: "개인 사유", appliedAt: "2025.04.29" },
-  { id: 4, empName: "나", empDept: "개발팀", empAvatar: "나", empColor: "var(--teal)", type: "연차", start: "2025.05.19", end: "2025.05.21", days: 3, status: "대기", reason: "가족 여행", appliedAt: "2025.05.10" },
-  { id: 5, empName: "나", empDept: "개발팀", empAvatar: "나", empColor: "var(--teal)", type: "반차", start: "2025.05.28", end: "2025.05.28", days: 0.5, status: "대기", reason: "개인 사유", appliedAt: "2025.05.13" },
-];
+// 기본 데이터 (이름 매핑이 없는 경우 fallback)
+const defaultLeaveData = {
+  total: 15, used: 0, pending: 0, remaining: 15,
+  history: [] as LeaveRequest[],
+  calendarData: {} as Record<number, { type: string; label: string }>,
+};
 
 const allLeaveRequests: LeaveRequest[] = [
   { id: 101, empName: "이준혁", empDept: "개발팀", empAvatar: "이준", empColor: "oklch(0.65 0.14 185)", type: "연차", start: "2025.05.19", end: "2025.05.21", days: 3, status: "대기", reason: "가족 여행", appliedAt: "2025.05.10" },
@@ -139,6 +175,7 @@ const allLeaveRequests: LeaveRequest[] = [
   { id: 106, empName: "최지원", empDept: "디자인", empAvatar: "최지", empColor: "oklch(0.65 0.20 25)", type: "연차", start: "2025.05.28", end: "2025.05.29", days: 2, status: "승인", reason: "개인 사유", appliedAt: "2025.05.11" },
   { id: 107, empName: "윤재원", empDept: "재무팀", empAvatar: "윤재", empColor: "oklch(0.60 0.12 80)", type: "연차", start: "2025.05.20", end: "2025.05.20", days: 1, status: "거절", reason: "개인 사유", appliedAt: "2025.05.09" },
   { id: 108, empName: "강다은", empDept: "인사팀", empAvatar: "강다", empColor: "oklch(0.65 0.14 185)", type: "반차", start: "2025.05.21", end: "2025.05.21", days: 0.5, status: "대기", reason: "병원 방문", appliedAt: "2025.05.15" },
+  { id: 109, empName: "김직원", empDept: "개발팀", empAvatar: "김직", empColor: "var(--teal)", type: "연차", start: "2025.05.26", end: "2025.05.26", days: 1, status: "대기", reason: "개인 사유", appliedAt: "2025.05.18" },
 ];
 
 const deptAttendanceSummary = [
@@ -160,6 +197,7 @@ const allEmployeeLeave = [
   { name: "이수진", dept: "마케팅", total: 15, used: 3, pending: 0.5, remaining: 11.5, color: "oklch(0.60 0.15 160)" },
   { name: "윤재원", dept: "재무팀", total: 15, used: 7, pending: 0, remaining: 8, color: "oklch(0.60 0.12 80)" },
   { name: "강다은", dept: "인사팀", total: 15, used: 0, pending: 0.5, remaining: 14.5, color: "oklch(0.65 0.14 185)" },
+  { name: "김직원", dept: "개발팀", total: 15, used: 4, pending: 1, remaining: 10, color: "var(--teal)" },
 ];
 
 const specialLeaveTypes = [
@@ -168,13 +206,6 @@ const specialLeaveTypes = [
   { icon: Coffee, label: "부모 사망", days: 5, color: "oklch(0.50 0.10 240)" },
   { icon: Briefcase, label: "본인 사망(조의)", days: 3, color: "oklch(0.55 0.01 220)" },
 ];
-
-const calendarData: Record<number, { type: string; label: string }> = {
-  2: { type: "leave", label: "연차" },
-  19: { type: "pending", label: "연차(대기)" },
-  20: { type: "pending", label: "연차(대기)" },
-  21: { type: "pending", label: "연차(대기)" },
-};
 
 // ─── Notification Bell (Header) ──────────────────────────────────────────────
 
@@ -294,12 +325,12 @@ function LeaveRing({ used, total }: { used: number; total: number }) {
   );
 }
 
-function MiniCalendar() {
+function MiniCalendar({ calendarData }: { calendarData: Record<number, { type: string; label: string }> }) {
   const [month] = useState(4);
   const year = 2025;
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const today = 15;
+  const today = 18;
   const cells: (number | null)[] = [];
   for (let i = 0; i < (firstDay === 0 ? 6 : firstDay - 1); i++) cells.push(null);
   for (let d = 1; d <= daysInMonth; d++) cells.push(d);
@@ -340,7 +371,7 @@ function MiniCalendar() {
   );
 }
 
-function LeaveRequestDialog() {
+function LeaveRequestDialog({ remaining }: { remaining: number }) {
   const [form, setForm] = useState({ type: "연차", start: "", end: "", reason: "" });
   const handleSubmit = () => {
     if (!form.start || !form.end || !form.reason) { toast.error("모든 항목을 입력해주세요"); return; }
@@ -381,7 +412,7 @@ function LeaveRequestDialog() {
             className="w-full px-3 py-2 text-sm border border-border rounded-xl outline-none focus:ring-2 focus:ring-[var(--teal)]/30 resize-none" />
         </div>
         <div className="p-3 bg-[var(--teal-light)] rounded-xl text-xs text-[var(--teal-dark)]">
-          <strong>잔여 연차 7일</strong> · 승인 시 자동 차감됩니다
+          <strong>잔여 연차 {remaining}일</strong> · 승인 시 자동 차감됩니다
         </div>
         <Button className="w-full rounded-xl text-white" style={{ background: "var(--teal)" }} onClick={handleSubmit}>
           신청하기
@@ -418,7 +449,18 @@ function SpecialLeavePanel() {
 
 // ─── Employee View ────────────────────────────────────────────────────────────
 
-function EmployeeView() {
+function EmployeeView({ userName, userDept }: { userName: string; userDept: string }) {
+  // 본인 데이터 로드 (이름 기반 매핑, 없으면 기본값)
+  const myData = employeeLeaveData[userName] ?? defaultLeaveData;
+  const leaveBalance = {
+    total: myData.total,
+    used: myData.used,
+    pending: myData.pending,
+    remaining: myData.remaining,
+  };
+  const myLeaveHistory = myData.history;
+  const calendarData = myData.calendarData;
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
@@ -431,7 +473,7 @@ function EmployeeView() {
               <Plus size={16} />연차 신청
             </Button>
           </DialogTrigger>
-          <LeaveRequestDialog />
+          <LeaveRequestDialog remaining={leaveBalance.remaining} />
         </Dialog>
       </div>
 
@@ -439,7 +481,7 @@ function EmployeeView() {
         {/* Left: Balance + Calendar */}
         <div className="xl:col-span-1 space-y-5">
           <div className="bg-white rounded-2xl p-5 shadow-sm border border-border">
-            <h2 className="section-title mb-4">연차 현황</h2>
+            <h2 className="section-title mb-4">내 연차 현황</h2>
             <div className="flex items-center gap-5">
               <LeaveRing used={leaveBalance.used + leaveBalance.pending} total={leaveBalance.total} />
               <div className="space-y-2 flex-1">
@@ -458,6 +500,25 @@ function EmployeeView() {
             </div>
           </div>
 
+          {/* 부서 정보 카드 */}
+          <div className="bg-white rounded-2xl p-5 shadow-sm border border-border">
+            <h2 className="section-title mb-3">소속 정보</h2>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">이름</span>
+                <span className="text-sm font-semibold text-foreground">{userName}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">부서</span>
+                <span className="text-sm font-medium text-foreground">{userDept || "미지정"}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">기준 연도</span>
+                <span className="text-sm font-medium text-foreground">2025년</span>
+              </div>
+            </div>
+          </div>
+
           <div className="bg-white rounded-2xl p-5 shadow-sm border border-border">
             <div className="flex items-center justify-between mb-4">
               <h2 className="section-title">2025년 5월</h2>
@@ -466,7 +527,7 @@ function EmployeeView() {
                 <Button variant="ghost" size="icon" className="w-7 h-7 rounded-lg"><ChevronRight size={14} /></Button>
               </div>
             </div>
-            <MiniCalendar />
+            <MiniCalendar calendarData={calendarData} />
           </div>
         </div>
 
@@ -474,7 +535,7 @@ function EmployeeView() {
         <div className="xl:col-span-2">
           <Tabs defaultValue="history">
             <TabsList className="bg-muted rounded-xl p-1 mb-5">
-              <TabsTrigger value="history" className="rounded-lg text-sm">연차 내역</TabsTrigger>
+              <TabsTrigger value="history" className="rounded-lg text-sm">내 연차 내역</TabsTrigger>
               <TabsTrigger value="special" className="rounded-lg text-sm">경조사 지원</TabsTrigger>
             </TabsList>
 
@@ -484,30 +545,37 @@ function EmployeeView() {
                   <h2 className="section-title">연차 사용 내역</h2>
                   <span className="text-xs text-muted-foreground">총 {myLeaveHistory.length}건</span>
                 </div>
-                <div className="divide-y divide-border">
-                  {myLeaveHistory.map((item) => (
-                    <div key={item.id} className="flex items-center gap-4 px-5 py-4 hover:bg-muted/30 transition-colors">
-                      <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center text-xs font-bold shrink-0",
-                        item.status === "승인" ? "bg-[var(--teal-light)] text-[var(--teal-dark)]" : "bg-amber-50 text-amber-600")}>
-                        {item.type}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-semibold text-foreground">{item.reason}</span>
-                          <StatusBadge status={item.status} />
+                {myLeaveHistory.length === 0 ? (
+                  <div className="py-12 text-center">
+                    <CalendarDays size={32} className="mx-auto text-muted-foreground/40 mb-3" />
+                    <div className="text-sm text-muted-foreground">아직 연차 사용 내역이 없습니다</div>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-border">
+                    {myLeaveHistory.map((item) => (
+                      <div key={item.id} className="flex items-center gap-4 px-5 py-4 hover:bg-muted/30 transition-colors">
+                        <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center text-xs font-bold shrink-0",
+                          item.status === "승인" ? "bg-[var(--teal-light)] text-[var(--teal-dark)]" : "bg-amber-50 text-amber-600")}>
+                          {item.type}
                         </div>
-                        <div className="text-xs text-muted-foreground mt-0.5">{item.start} ~ {item.end}</div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-semibold text-foreground">{item.reason}</span>
+                            <StatusBadge status={item.status} />
+                          </div>
+                          <div className="text-xs text-muted-foreground mt-0.5">{item.start} ~ {item.end}</div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <div className="mono-num text-sm font-bold text-foreground">{item.days}일</div>
+                          <div className="text-xs text-muted-foreground">차감</div>
+                        </div>
+                        <div className="shrink-0">
+                          {item.status === "승인" ? <CheckCircle2 size={18} className="text-[var(--teal)]" /> : <AlertCircle size={18} className="text-amber-400" />}
+                        </div>
                       </div>
-                      <div className="text-right shrink-0">
-                        <div className="mono-num text-sm font-bold text-foreground">{item.days}일</div>
-                        <div className="text-xs text-muted-foreground">차감</div>
-                      </div>
-                      <div className="shrink-0">
-                        {item.status === "승인" ? <CheckCircle2 size={18} className="text-[var(--teal)]" /> : <AlertCircle size={18} className="text-amber-400" />}
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </TabsContent>
 
@@ -772,42 +840,35 @@ function AdminView() {
                 <thead>
                   <tr className="border-b border-border">
                     {["직원", "부서", "총 연차", "사용", "대기", "잔여", "사용률"].map((h) => (
-                      <th key={h} className="text-left text-xs font-semibold text-muted-foreground px-4 py-3 whitespace-nowrap">{h}</th>
+                      <th key={h} className="text-left text-xs font-semibold text-muted-foreground px-4 py-3 first:pl-5 last:pr-5">{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {allEmployeeLeave.map((emp) => {
                     const usageRate = Math.round(((emp.used + emp.pending) / emp.total) * 100);
-                    const isLow = emp.remaining <= 2;
                     return (
                       <tr key={emp.name} className="hover:bg-muted/20 transition-colors">
-                        <td className="px-4 py-3">
+                        <td className="px-4 py-3 pl-5">
                           <div className="flex items-center gap-2">
-                            <div className="w-7 h-7 rounded-lg flex items-center justify-center text-[10px] font-bold text-white shrink-0"
+                            <div className="w-7 h-7 rounded-lg flex items-center justify-center text-[10px] font-bold text-white"
                               style={{ background: emp.color }}>
                               {emp.name.slice(0, 1)}
                             </div>
-                            <span className="text-sm font-semibold text-foreground">{emp.name}</span>
+                            <span className="text-sm font-medium text-foreground">{emp.name}</span>
                           </div>
                         </td>
                         <td className="px-4 py-3 text-xs text-muted-foreground">{emp.dept}</td>
-                        <td className="px-4 py-3 mono-num text-sm font-semibold text-foreground">{emp.total}일</td>
-                        <td className="px-4 py-3 mono-num text-sm text-[var(--teal-dark)] font-semibold">{emp.used}일</td>
-                        <td className="px-4 py-3 mono-num text-sm text-amber-500 font-semibold">{emp.pending > 0 ? emp.pending + "일" : "—"}</td>
-                        <td className="px-4 py-3">
-                          <span className={cn("mono-num text-sm font-bold", isLow ? "text-[var(--coral)]" : "text-foreground")}>
-                            {emp.remaining}일
-                          </span>
-                          {isLow && <span className="ml-1 text-[10px] text-[var(--coral)]">부족</span>}
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2 min-w-20">
-                            <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
-                              <div className="h-full rounded-full transition-all duration-700"
-                                style={{ width: `${usageRate}%`, background: usageRate >= 80 ? "var(--coral)" : "var(--teal)" }} />
+                        <td className="px-4 py-3 mono-num text-sm text-foreground">{emp.total}</td>
+                        <td className="px-4 py-3 mono-num text-sm text-[var(--teal-dark)]">{emp.used}</td>
+                        <td className="px-4 py-3 mono-num text-sm text-amber-500">{emp.pending}</td>
+                        <td className="px-4 py-3 mono-num text-sm font-bold text-[var(--teal)]">{emp.remaining}</td>
+                        <td className="px-4 py-3 pr-5">
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden min-w-[40px]">
+                              <div className="h-full rounded-full" style={{ width: `${usageRate}%`, background: usageRate >= 80 ? "var(--coral)" : "var(--teal)" }} />
                             </div>
-                            <span className="mono-num text-xs font-semibold text-foreground w-8 text-right">{usageRate}%</span>
+                            <span className="mono-num text-xs text-muted-foreground w-8 text-right">{usageRate}%</span>
                           </div>
                         </td>
                       </tr>
@@ -823,31 +884,28 @@ function AdminView() {
   );
 }
 
-// ─── Leave Alert Panel ───────────────────────────────────────────────────────
+// ─── Leave Alert Panel ────────────────────────────────────────────────────────
 
 function LeaveAlertPanel() {
-  const [threshold, setThreshold] = useState(5);
+  const [threshold, setThreshold] = useState(7);
   const [channels, setChannels] = useState({ email: true, app: true, sms: false });
   const [autoAlert, setAutoAlert] = useState(false);
   const [autoFreq, setAutoFreq] = useState<"매일" | "매주" | "매월">("매주");
   const [isSending, setIsSending] = useState(false);
-  const [logs, setLogs] = useState<NotificationLog[]>(() => getNotificationLogs());
   const [showLog, setShowLog] = useState(false);
-
-  // Subscribe to global notification changes
-  useState(() => {
-    const unsub = subscribeNotifications(() => setLogs([...getNotificationLogs()]));
-    return unsub;
-  });
+  const [logs, setLogs] = useState<NotificationLog[]>(() => getNotificationLogs());
 
   const targets = allEmployeeLeave.filter((e) => e.remaining <= threshold);
 
-  const channelLabel = [channels.email && "이메일", channels.app && "앱 알림", channels.sms && "SMS"]
-    .filter(Boolean).join("+") || "없음";
+  const channelLabel = [
+    channels.email && "이메일",
+    channels.app && "앱 알림",
+    channels.sms && "SMS",
+  ].filter(Boolean).join("+") || "없음";
 
   const handleSend = () => {
-    if (targets.length === 0) { toast.info("알림 대상 직원이 없습니다", { description: `잔여 연차 ${threshold}일 이하인 직원이 없습니다.` }); return; }
-    if (channelLabel === "없음") { toast.error("발송 채널을 하나 이상 선택해주세요"); return; }
+    if (targets.length === 0) { toast.error("알림 대상 직원이 없습니다"); return; }
+    if (!channels.email && !channels.app && !channels.sms) { toast.error("발송 채널을 선택해주세요"); return; }
     setIsSending(true);
     setTimeout(() => {
       setIsSending(false);
@@ -1014,7 +1072,14 @@ function LeaveAlertPanel() {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function AttendancePage() {
-  const [role, setRole] = useState<"employee" | "admin">("employee");
+  const { user, isAdmin } = useAuth();
+  const [adminViewMode, setAdminViewMode] = useState<"employee" | "admin">("admin");
+
+  // 직원 로그인 시: 역할 전환 탭 없이 본인 뷰만 표시
+  // 관리자 로그인 시: 역할 전환 탭 표시 (기본값 관리자 뷰)
+
+  const userName = user?.name ?? "사용자";
+  const userDept = user?.department ?? "";
 
   return (
     <div className="p-5 lg:p-7 page-enter">
@@ -1022,57 +1087,88 @@ export default function AttendancePage() {
       <div className="flex items-start justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-foreground tracking-tight">근태 · 연차 관리</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">2025년 5월 · 싸카스포츠</p>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            2025년 5월 · 싸카스포츠
+            {!isAdmin && (
+              <span className="ml-2 inline-flex items-center gap-1 text-[var(--teal-dark)] font-medium">
+                <Lock size={11} />
+                본인 데이터만 표시
+              </span>
+            )}
+          </p>
         </div>
 
-        {/* Role Switch */}
-        <div className="flex items-center gap-1 bg-muted rounded-xl p-1 shadow-sm">
-          <button
-            onClick={() => setRole("employee")}
-            className={cn(
-              "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200",
-              role === "employee"
-                ? "bg-white text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <User size={15} />
-            직원
-          </button>
-          <button
-            onClick={() => setRole("admin")}
-            className={cn(
-              "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200",
-              role === "admin"
-                ? "bg-white text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <ShieldCheck size={15} />
-            관리자
-          </button>
-        </div>
+        {/* 관리자만 역할 전환 탭 표시 */}
+        {isAdmin && (
+          <div className="flex items-center gap-1 bg-muted rounded-xl p-1 shadow-sm">
+            <button
+              onClick={() => setAdminViewMode("employee")}
+              className={cn(
+                "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200",
+                adminViewMode === "employee"
+                  ? "bg-white text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <User size={15} />
+              직원 뷰
+            </button>
+            <button
+              onClick={() => setAdminViewMode("admin")}
+              className={cn(
+                "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200",
+                adminViewMode === "admin"
+                  ? "bg-white text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <ShieldCheck size={15} />
+              관리자 뷰
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Role Badge */}
       <div className="flex items-center gap-2 mb-5">
-        <div className={cn(
-          "flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold",
-          role === "employee"
-            ? "bg-[var(--teal-light)] text-[var(--teal-dark)]"
-            : "bg-[oklch(0.93_0.05_280)] text-[oklch(0.40_0.15_280)]"
-        )}>
-          {role === "employee" ? <User size={12} /> : <ShieldCheck size={12} />}
-          {role === "employee" ? "직원 뷰 — 이준혁" : "관리자 뷰 — HR 담당자"}
-        </div>
-        <span className="text-xs text-muted-foreground">
-          {role === "employee" ? "본인의 근태·연차 현황을 확인하고 신청합니다" : "전체 직원의 연차 신청을 승인·관리합니다"}
-        </span>
+        {isAdmin ? (
+          <>
+            <div className={cn(
+              "flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold",
+              adminViewMode === "employee"
+                ? "bg-[var(--teal-light)] text-[var(--teal-dark)]"
+                : "bg-[oklch(0.93_0.05_280)] text-[oklch(0.40_0.15_280)]"
+            )}>
+              {adminViewMode === "employee" ? <User size={12} /> : <ShieldCheck size={12} />}
+              {adminViewMode === "employee" ? `직원 뷰 — ${userName}` : "관리자 뷰 — HR 담당자"}
+            </div>
+            <span className="text-xs text-muted-foreground">
+              {adminViewMode === "employee" ? "직원 뷰를 미리보고 있습니다" : "전체 직원의 연차 신청을 승인·관리합니다"}
+            </span>
+          </>
+        ) : (
+          <>
+            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-[var(--teal-light)] text-[var(--teal-dark)]">
+              <User size={12} />
+              {userName} · {userDept}
+            </div>
+            <span className="text-xs text-muted-foreground">본인의 근태·연차 현황을 확인하고 신청합니다</span>
+          </>
+        )}
       </div>
 
       {/* View Content */}
       <div style={{ animation: "fadeIn 0.2s ease-out" }}>
-        {role === "employee" ? <EmployeeView /> : <AdminView />}
+        {!isAdmin ? (
+          // 직원: 본인 데이터만 표시
+          <EmployeeView userName={userName} userDept={userDept} />
+        ) : adminViewMode === "admin" ? (
+          // 관리자 뷰
+          <AdminView />
+        ) : (
+          // 관리자가 직원 뷰 미리보기
+          <EmployeeView userName={userName} userDept={userDept} />
+        )}
       </div>
 
       <style>{`
