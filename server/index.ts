@@ -536,7 +536,7 @@ async function startServer() {
   // ─── 직원 관리 API ─────────────────────────────────────────
   // 직원 목록 조회
   app.get("/api/employees", async (req, res) => {
-    const user = (req as any).user;
+    const user = getUser(req);
     if (!user) return res.status(401).json({ error: "인증이 필요합니다" });
     const db = getPool();
     if (!db) return res.status(500).json({ error: "DB 연결 실패" });
@@ -558,7 +558,7 @@ async function startServer() {
 
   // 직원 단건 조회
   app.get("/api/employees/:id", async (req, res) => {
-    const user = (req as any).user;
+    const user = getUser(req);
     if (!user) return res.status(401).json({ error: "인증이 필요합니다" });
     const db = getPool();
     if (!db) return res.status(500).json({ error: "DB 연결 실패" });

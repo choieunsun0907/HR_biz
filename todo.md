@@ -31,6 +31,9 @@
 - [x] 문서관리 탭 활성화 (업로드·목록·다운로드)
 - [x] 쿠키 SameSite=None; Secure 설정 (HTTPS 환경 브라우저 인증 오류 수정)
 
+## 버그 수정
+- [x] server/index.ts /api/employees GET 라우트 인증 오류 수정 ((req as any).user → getUser(req))
+
 ## 조직 마스터 & 직원 폼 DB 연동
 - [x] 마스터 데이터 API에 순서 변경(PATCH /api/master/:type/reorder) 엔드포인트 추가 (vite.config.ts + server/index.ts)
 - [x] SettingsPage 마스터 데이터 탭에 드래그앤드롭 순서 변경 UI 구현 (@dnd-kit)
