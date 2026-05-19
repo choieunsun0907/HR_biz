@@ -551,6 +551,324 @@ function vitePluginAdminUsersApi(): Plugin {
   };
 }
 
+// =============================================================================
+// Community API Plugin - /api/community/* (공지사항, 게시판, 댓글)
+// =============================================================================
+function vitePluginCommunityApi(): Plugin {
+  const COOKIE_NAME = "tp_auth";
+  const JWT_SECRET = process.env.JWT_SECRET || "teampulse-secret-key";
+  const DATABASE_URL = process.env.DATABASE_URL;
+
+  let _pool: any = null;
+  async function getPool() {
+    if (_pool) return _pool;
+    if (!DATABASE_URL) return null;
+    const mysql = await import("mysql2/promise");
+    _pool = mysql.createPool(DATABASE_URL);
+    return _pool;
+  }
+
+  function parseCookies(h: string): Record<string, string> {
+    const c: Record<string, string> = {};
+    if (!h) return c;
+    h.split(";").forEach((p) => { const [k, ...v] = p.trim().split("="); if (k) c[k.trim()] = decodeURIComponent(v.join("=")); });
+    return c;
+  }
+
+  function readBody(req: any): Promise<any> {
+    return new Promise((resolve) => {
+      if (req.body && typeof req.body === "object") { resolve(req.body); return; }
+      let raw = "";
+      req.on("data", (c: Buffer) => { raw += c.toString(); });
+      req.on("end", () => { try { resolve(JSON.parse(raw)); } catch { resolve({}); } });
+    });
+  }
+
+  function sendJson(res: any, status: number, data: unknown) {
+    const body = JSON.stringify(data);
+    res.writeHead(status, { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) });
+    res.end(body);
+  }
+
+  async function getUser(req: any): Promise<any | null> {
+    try {
+      const cookies = parseCookies(req.headers.cookie || "");
+      const token = cookies[COOKIE_NAME];
+      if (!token) return null;
+      const jwtMod = await import("jsonwebtoken");
+      const jwt = (jwtMod.default ?? jwtMod) as any;
+      return jwt.verify(token, JWT_SECRET) as any;
+    } catch { return null; }
+  }
+
+  return {
+    name: "manus-community-api",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/community", async (req: any, res: any, next: any) => {
+        const url = (req.url as string) || "/";
+        const method = req.method as string;
+        const db = await getPool();
+        if (!db) return sendJson(res, 500, { error: "DB 연결 실패" });
+
+        // ── 공지사항 ──────────────────────────────────────────────────────────
+        // GET /api/community/notices
+        if (url === "/notices" && method === "GET") {
+          const [rows] = await db.execute(
+            "SELECT n.*, (SELECT COUNT(*) FROM tp_comments c WHERE c.target_type='notice' AND c.target_id=n.id) AS comment_count FROM tp_notices n ORDER BY pinned DESC, created_at DESC"
+          );
+          return sendJson(res, 200, { notices: rows });
+        }
+
+        // POST /api/community/notices
+        if (url === "/notices" && method === "POST") {
+          const user = await getUser(req);
+          if (!user) return sendJson(res, 401, { error: "인증 필요" });
+          const body = await readBody(req);
+          const { title, content, must_read, pinned } = body as any;
+          if (!title?.trim() || !content?.trim()) return sendJson(res, 400, { error: "제목과 내용은 필수입니다." });
+          const [result] = await db.execute(
+            "INSERT INTO tp_notices (title, content, author, author_id, must_read, pinned) VALUES (?, ?, ?, ?, ?, ?)",
+            [title.trim(), content.trim(), user.name, user.id, must_read ? 1 : 0, pinned ? 1 : 0]
+          ) as any;
+          const [rows] = await db.execute("SELECT * FROM tp_notices WHERE id = ?", [result.insertId]);
+          return sendJson(res, 201, { notice: (rows as any[])[0] });
+        }
+
+        // GET /api/community/notices/:id
+        const noticeGetMatch = url.match(/^\/notices\/([0-9]+)$/);
+        if (noticeGetMatch && method === "GET") {
+          const id = parseInt(noticeGetMatch[1]);
+          await db.execute("UPDATE tp_notices SET views = views + 1 WHERE id = ?", [id]);
+          const [rows] = await db.execute("SELECT * FROM tp_notices WHERE id = ?", [id]);
+          if ((rows as any[]).length === 0) return sendJson(res, 404, { error: "없음" });
+          return sendJson(res, 200, { notice: (rows as any[])[0] });
+        }
+
+        // DELETE /api/community/notices/:id
+        const noticeDelMatch = url.match(/^\/notices\/([0-9]+)$/);
+        if (noticeDelMatch && method === "DELETE") {
+          const user = await getUser(req);
+          if (!user || user.role !== "admin") return sendJson(res, 403, { error: "관리자만 삭제 가능" });
+          const id = parseInt(noticeDelMatch[1]);
+          await db.execute("DELETE FROM tp_comments WHERE target_type='notice' AND target_id = ?", [id]);
+          await db.execute("DELETE FROM tp_notices WHERE id = ?", [id]);
+          return sendJson(res, 200, { success: true });
+        }
+
+        // ── 게시판 ────────────────────────────────────────────────────────────
+        // GET /api/community/board
+        if (url === "/board" && method === "GET") {
+          const [rows] = await db.execute(
+            "SELECT p.*, (SELECT COUNT(*) FROM tp_comments c WHERE c.target_type='board' AND c.target_id=p.id) AS comment_count FROM tp_board_posts p ORDER BY pinned DESC, created_at DESC"
+          );
+          return sendJson(res, 200, { posts: rows });
+        }
+
+        // POST /api/community/board
+        if (url === "/board" && method === "POST") {
+          const user = await getUser(req);
+          if (!user) return sendJson(res, 401, { error: "인증 필요" });
+          const body = await readBody(req);
+          const { title, content, category } = body as any;
+          if (!title?.trim() || !content?.trim()) return sendJson(res, 400, { error: "제목과 내용은 필수입니다." });
+          const [result] = await db.execute(
+            "INSERT INTO tp_board_posts (title, content, category, author, author_id, dept) VALUES (?, ?, ?, ?, ?, ?)",
+            [title.trim(), content.trim(), category || "개발", user.name, user.id, user.department || ""]
+          ) as any;
+          const [rows] = await db.execute("SELECT * FROM tp_board_posts WHERE id = ?", [result.insertId]);
+          return sendJson(res, 201, { post: (rows as any[])[0] });
+        }
+
+        // DELETE /api/community/board/:id
+        const boardDelMatch = url.match(/^\/board\/([0-9]+)$/);
+        if (boardDelMatch && method === "DELETE") {
+          const user = await getUser(req);
+          if (!user) return sendJson(res, 401, { error: "인증 필요" });
+          const id = parseInt(boardDelMatch[1]);
+          const [rows] = await db.execute("SELECT author_id FROM tp_board_posts WHERE id = ?", [id]);
+          if ((rows as any[]).length === 0) return sendJson(res, 404, { error: "없음" });
+          if ((rows as any[])[0].author_id !== user.id && user.role !== "admin") return sendJson(res, 403, { error: "권한 없음" });
+          await db.execute("DELETE FROM tp_comments WHERE target_type='board' AND target_id = ?", [id]);
+          await db.execute("DELETE FROM tp_board_posts WHERE id = ?", [id]);
+          return sendJson(res, 200, { success: true });
+        }
+
+        // ── 댓글 ──────────────────────────────────────────────────────────────
+        // GET /api/community/comments?type=notice&id=1
+        if (url.startsWith("/comments") && method === "GET") {
+          const qs = new URLSearchParams(url.split("?")[1] || "");
+          const type = qs.get("type") as "notice" | "board";
+          const id = parseInt(qs.get("id") || "0");
+          if (!type || !id) return sendJson(res, 400, { error: "type, id 필요" });
+          const [rows] = await db.execute(
+            "SELECT * FROM tp_comments WHERE target_type = ? AND target_id = ? ORDER BY created_at ASC",
+            [type, id]
+          );
+          return sendJson(res, 200, { comments: rows });
+        }
+
+        // POST /api/community/comments
+        if (url === "/comments" && method === "POST") {
+          const user = await getUser(req);
+          if (!user) return sendJson(res, 401, { error: "인증 필요" });
+          const body = await readBody(req);
+          const { target_type, target_id, content, parent_id } = body as any;
+          if (!content?.trim()) return sendJson(res, 400, { error: "내용 필수" });
+          const [result] = await db.execute(
+            "INSERT INTO tp_comments (target_type, target_id, parent_id, author, author_id, dept, content) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [target_type, target_id, parent_id || null, user.name, user.id, user.department || "", content.trim()]
+          ) as any;
+          const [rows] = await db.execute("SELECT * FROM tp_comments WHERE id = ?", [result.insertId]);
+          return sendJson(res, 201, { comment: (rows as any[])[0] });
+        }
+
+        // DELETE /api/community/comments/:id
+        const commentDelMatch = url.match(/^\/comments\/([0-9]+)$/);
+        if (commentDelMatch && method === "DELETE") {
+          const user = await getUser(req);
+          if (!user) return sendJson(res, 401, { error: "인증 필요" });
+          const id = parseInt(commentDelMatch[1]);
+          const [rows] = await db.execute("SELECT author_id FROM tp_comments WHERE id = ?", [id]);
+          if ((rows as any[]).length === 0) return sendJson(res, 404, { error: "없음" });
+          if ((rows as any[])[0].author_id !== user.id && user.role !== "admin") return sendJson(res, 403, { error: "권한 없음" });
+          await db.execute("DELETE FROM tp_comments WHERE id = ? OR parent_id = ?", [id, id]);
+          return sendJson(res, 200, { success: true });
+        }
+
+        // PATCH /api/community/comments/:id
+        const commentEditMatch = url.match(/^\/comments\/([0-9]+)$/);
+        if (commentEditMatch && method === "PATCH") {
+          const user = await getUser(req);
+          if (!user) return sendJson(res, 401, { error: "인증 필요" });
+          const id = parseInt(commentEditMatch[1]);
+          const body = await readBody(req);
+          const [rows] = await db.execute("SELECT author_id FROM tp_comments WHERE id = ?", [id]);
+          if ((rows as any[]).length === 0) return sendJson(res, 404, { error: "없음" });
+          if ((rows as any[])[0].author_id !== user.id) return sendJson(res, 403, { error: "권한 없음" });
+          await db.execute("UPDATE tp_comments SET content = ? WHERE id = ?", [body.content?.trim(), id]);
+          const [updated] = await db.execute("SELECT * FROM tp_comments WHERE id = ?", [id]);
+          return sendJson(res, 200, { comment: (updated as any[])[0] });
+        }
+
+        // PATCH /api/community/comments/:id/like
+        const likeMatch = url.match(/^\/comments\/([0-9]+)\/like$/);
+        if (likeMatch && method === "PATCH") {
+          const id = parseInt(likeMatch[1]);
+          await db.execute("UPDATE tp_comments SET likes = likes + 1 WHERE id = ?", [id]);
+          const [rows] = await db.execute("SELECT likes FROM tp_comments WHERE id = ?", [id]);
+          return sendJson(res, 200, { likes: (rows as any[])[0]?.likes ?? 0 });
+        }
+
+        next();
+      });
+    },
+  };
+}
+
+// =============================================================================
+// Messenger API Plugin - /api/messenger/* (채널, 메시지)
+// =============================================================================
+function vitePluginMessengerApi(): Plugin {
+  const COOKIE_NAME = "tp_auth";
+  const JWT_SECRET = process.env.JWT_SECRET || "teampulse-secret-key";
+  const DATABASE_URL = process.env.DATABASE_URL;
+
+  let _pool: any = null;
+  async function getPool() {
+    if (_pool) return _pool;
+    if (!DATABASE_URL) return null;
+    const mysql = await import("mysql2/promise");
+    _pool = mysql.createPool(DATABASE_URL);
+    return _pool;
+  }
+
+  function parseCookies(h: string): Record<string, string> {
+    const c: Record<string, string> = {};
+    if (!h) return c;
+    h.split(";").forEach((p) => { const [k, ...v] = p.trim().split("="); if (k) c[k.trim()] = decodeURIComponent(v.join("=")); });
+    return c;
+  }
+
+  function readBody(req: any): Promise<any> {
+    return new Promise((resolve) => {
+      if (req.body && typeof req.body === "object") { resolve(req.body); return; }
+      let raw = "";
+      req.on("data", (c: Buffer) => { raw += c.toString(); });
+      req.on("end", () => { try { resolve(JSON.parse(raw)); } catch { resolve({}); } });
+    });
+  }
+
+  function sendJson(res: any, status: number, data: unknown) {
+    const body = JSON.stringify(data);
+    res.writeHead(status, { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) });
+    res.end(body);
+  }
+
+  async function getUser(req: any): Promise<any | null> {
+    try {
+      const cookies = parseCookies(req.headers.cookie || "");
+      const token = cookies[COOKIE_NAME];
+      if (!token) return null;
+      const jwtMod = await import("jsonwebtoken");
+      const jwt = (jwtMod.default ?? jwtMod) as any;
+      return jwt.verify(token, JWT_SECRET) as any;
+    } catch { return null; }
+  }
+
+  async function getOrCreateChannel(db: any, userA: string, userB: string): Promise<number> {
+    const [a, b] = [userA, userB].sort();
+    const [rows] = await db.execute("SELECT id FROM tp_chat_channels WHERE user_a = ? AND user_b = ?", [a, b]);
+    if ((rows as any[]).length > 0) return (rows as any[])[0].id;
+    const [result] = await db.execute("INSERT INTO tp_chat_channels (user_a, user_b) VALUES (?, ?)", [a, b]) as any;
+    return result.insertId;
+  }
+
+  return {
+    name: "manus-messenger-api",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/messenger", async (req: any, res: any, next: any) => {
+        const url = (req.url as string) || "/";
+        const method = req.method as string;
+        const db = await getPool();
+        if (!db) return sendJson(res, 500, { error: "DB 연결 실패" });
+
+        // GET /api/messenger/messages?with=이준혁  — 특정 상대와의 메시지 조회
+        if (url.startsWith("/messages") && method === "GET") {
+          const user = await getUser(req);
+          if (!user) return sendJson(res, 401, { error: "인증 필요" });
+          const qs = new URLSearchParams(url.split("?")[1] || "");
+          const withUser = qs.get("with");
+          if (!withUser) return sendJson(res, 400, { error: "with 파라미터 필요" });
+          const channelId = await getOrCreateChannel(db, user.name, withUser);
+          const [rows] = await db.execute(
+            "SELECT * FROM tp_chat_messages WHERE channel_id = ? ORDER BY created_at ASC LIMIT 200",
+            [channelId]
+          );
+          return sendJson(res, 200, { messages: rows, channelId });
+        }
+
+        // POST /api/messenger/messages  — 메시지 전송
+        if (url === "/messages" && method === "POST") {
+          const user = await getUser(req);
+          if (!user) return sendJson(res, 401, { error: "인증 필요" });
+          const body = await readBody(req);
+          const { to, content } = body as any;
+          if (!to || !content?.trim()) return sendJson(res, 400, { error: "to, content 필요" });
+          const channelId = await getOrCreateChannel(db, user.name, to);
+          const [result] = await db.execute(
+            "INSERT INTO tp_chat_messages (channel_id, sender, sender_id, content) VALUES (?, ?, ?, ?)",
+            [channelId, user.name, user.id, content.trim()]
+          ) as any;
+          const [rows] = await db.execute("SELECT * FROM tp_chat_messages WHERE id = ?", [result.insertId]);
+          return sendJson(res, 201, { message: (rows as any[])[0] });
+        }
+
+        next();
+      });
+    },
+  };
+}
+
 const plugins = [
   react(),
   tailwindcss(),
@@ -560,6 +878,8 @@ const plugins = [
   vitePluginStorageProxy(),
   vitePluginAuthApi(),
   vitePluginAdminUsersApi(),
+  vitePluginCommunityApi(),
+  vitePluginMessengerApi(),
 ];
 
 export default defineConfig({
