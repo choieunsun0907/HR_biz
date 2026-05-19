@@ -10,7 +10,7 @@
  * - 기존 직원 정보 수정 모달
  */
 
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import {
   Search,
   LayoutGrid,
@@ -87,167 +87,35 @@ interface Employee {
   memo?: string;
 }
 
-// ─── Mock Data ────────────────────────────────────────────────────────────────
+// ─── DB 응답 → Employee 매핑 헬퍼 ──────────────────────────────────────────────
 
-const INITIAL_EMPLOYEES: Employee[] = [
-  {
-    id: 1, name: "이준혁", avatar: "이준", dept: "개발팀", role: "Frontend Engineer", grade: "선임",
-    status: "재직", email: "junhyuk.lee@teampulse.kr", phone: "010-1234-5678",
-    location: "서울 강남구", joinDate: "2022.03.07", birthDate: "1993.06.15",
-    manager: "김태호", engagementScore: 92, leaveBalance: 9, leaveUsed: 6,
-    attendanceRate: 98, skills: ["React", "TypeScript", "Next.js", "Figma"],
-    recentActivity: [
-      { date: "05.15", content: "React 19 마이그레이션 가이드 게시판 공유" },
-      { date: "05.14", content: "외근 체크인 — 판교 오피스" },
-      { date: "05.12", content: "연차 신청 (05.19~05.21)" },
-    ],
-    color: "oklch(0.65 0.14 185)",
-  },
-  {
-    id: 2, name: "박소연", avatar: "박소", dept: "마케팅", role: "Brand Manager", grade: "책임",
-    status: "재직", email: "soyeon.park@teampulse.kr", phone: "010-2345-6789",
-    location: "서울 마포구", joinDate: "2020.08.17", birthDate: "1990.11.03",
-    manager: "최지현", engagementScore: 88, leaveBalance: 7, leaveUsed: 8,
-    attendanceRate: 96, skills: ["Brand Strategy", "Copywriting", "Adobe CC", "SNS 마케팅"],
-    recentActivity: [
-      { date: "05.14", content: "Q2 브랜드 캠페인 결과 보고서 공유" },
-      { date: "05.10", content: "입사 5주년 기념일" },
-      { date: "05.08", content: "워크샵 참가 신청 완료" },
-    ],
-    color: "oklch(0.65 0.20 300)",
-  },
-  {
-    id: 3, name: "정하은", avatar: "정하", dept: "디자인", role: "UX Designer", grade: "선임",
-    status: "재직", email: "haeun.jung@teampulse.kr", phone: "010-3456-7890",
-    location: "서울 성동구", joinDate: "2021.11.22", birthDate: "1995.02.28",
-    manager: "최지원", engagementScore: 95, leaveBalance: 11, leaveUsed: 4,
-    attendanceRate: 99, skills: ["Figma", "Prototyping", "User Research", "Motion Design"],
-    recentActivity: [
-      { date: "05.13", content: "2025 UI 가이드라인 v2.0 배포" },
-      { date: "05.11", content: "UX 리서치 인터뷰 진행" },
-      { date: "05.09", content: "디자인 시스템 컴포넌트 업데이트" },
-    ],
-    color: "oklch(0.65 0.18 340)",
-  },
-  {
-    id: 4, name: "김태호", avatar: "김태", dept: "개발팀", role: "Backend Engineer", grade: "수석",
-    status: "재직", email: "taeho.kim@teampulse.kr", phone: "010-4567-8901",
-    location: "경기 성남시", joinDate: "2018.05.14", birthDate: "1988.09.20",
-    manager: "박민준", engagementScore: 85, leaveBalance: 6, leaveUsed: 9,
-    attendanceRate: 97, skills: ["Java", "Spring Boot", "Kubernetes", "PostgreSQL"],
-    recentActivity: [
-      { date: "05.15", content: "API 성능 최적화 배포 완료" },
-      { date: "05.13", content: "코드 리뷰 — 이준혁 PR 승인" },
-      { date: "05.10", content: "사내 기술 세미나 발표" },
-    ],
-    color: "oklch(0.55 0.15 240)",
-  },
-  {
-    id: 5, name: "홍길동", avatar: "홍길", dept: "영업팀", role: "Sales Lead", grade: "책임",
-    status: "재직", email: "gildong.hong@teampulse.kr", phone: "010-5678-9012",
-    location: "서울 여의도", joinDate: "2019.02.11", birthDate: "1991.04.07",
-    manager: "이수진", engagementScore: 78, leaveBalance: 5, leaveUsed: 10,
-    attendanceRate: 94, skills: ["B2B 영업", "CRM", "협상", "고객 관리"],
-    recentActivity: [
-      { date: "05.15", content: "5월 영업 목표 달성 현황 공유" },
-      { date: "05.12", content: "신규 고객사 미팅 — A사 계약 체결" },
-      { date: "05.08", content: "분기 영업 전략 회의 참석" },
-    ],
-    color: "oklch(0.65 0.18 60)",
-  },
-  {
-    id: 6, name: "최지원", avatar: "최지", dept: "디자인", role: "Visual Designer", grade: "선임",
-    status: "재직", email: "jiwon.choi@teampulse.kr", phone: "010-6789-0123",
-    location: "서울 강남구", joinDate: "2021.06.01", birthDate: "1994.12.10",
-    manager: "정하은", engagementScore: 91, leaveBalance: 10, leaveUsed: 5,
-    attendanceRate: 98, skills: ["Illustrator", "Photoshop", "Brand Identity", "3D"],
-    recentActivity: [
-      { date: "05.14", content: "신규 브랜드 에셋 제작 완료" },
-      { date: "05.12", content: "마케팅팀 협업 — 캠페인 비주얼" },
-      { date: "05.07", content: "디자인 피드백 세션 진행" },
-    ],
-    color: "oklch(0.65 0.20 25)",
-  },
-  {
-    id: 7, name: "이수진", avatar: "이수", dept: "마케팅", role: "Content Writer", grade: "주임",
-    status: "재직", email: "sujin.lee@teampulse.kr", phone: "010-7890-1234",
-    location: "서울 마포구", joinDate: "2023.01.09", birthDate: "1997.07.22",
-    manager: "박소연", engagementScore: 82, leaveBalance: 12, leaveUsed: 3,
-    attendanceRate: 97, skills: ["콘텐츠 기획", "SEO", "카피라이팅", "영상 편집"],
-    recentActivity: [
-      { date: "05.15", content: "5월 뉴스레터 발행" },
-      { date: "05.13", content: "블로그 포스팅 3건 업로드" },
-      { date: "05.10", content: "콘텐츠 캘린더 6월분 작성" },
-    ],
-    color: "oklch(0.60 0.15 160)",
-  },
-  {
-    id: 8, name: "박민준", avatar: "박민", dept: "개발팀", role: "DevOps Engineer", grade: "책임",
-    status: "휴직", email: "minjun.park@teampulse.kr", phone: "010-8901-2345",
-    location: "경기 수원시", joinDate: "2019.09.23", birthDate: "1989.03.14",
-    manager: "김태호", engagementScore: 76, leaveBalance: 15, leaveUsed: 0,
-    attendanceRate: 0, skills: ["AWS", "Docker", "CI/CD", "Terraform"],
-    recentActivity: [
-      { date: "04.30", content: "육아 휴직 시작" },
-      { date: "04.29", content: "인수인계 문서 작성 완료" },
-      { date: "04.25", content: "인프라 모니터링 대시보드 구축" },
-    ],
-    color: "oklch(0.55 0.10 220)",
-  },
-  {
-    id: 9, name: "강다은", avatar: "강다", dept: "인사팀", role: "HR Specialist", grade: "주임",
-    status: "수습", email: "daeun.kang@teampulse.kr", phone: "010-9012-3456",
-    location: "서울 강남구", joinDate: "2025.04.07", birthDate: "1999.01.30",
-    manager: "김인사", engagementScore: 88, leaveBalance: 11, leaveUsed: 0,
-    attendanceRate: 100, skills: ["채용", "온보딩", "노무", "Excel"],
-    recentActivity: [
-      { date: "05.15", content: "신입사원 온보딩 자료 검토" },
-      { date: "05.13", content: "채용 공고 3건 등록" },
-      { date: "05.09", content: "수습 1개월 평가 완료" },
-    ],
-    color: "oklch(0.65 0.14 185)",
-  },
-  {
-    id: 10, name: "윤재원", avatar: "윤재", dept: "재무팀", role: "Financial Analyst", grade: "선임",
-    status: "재직", email: "jaewon.yoon@teampulse.kr", phone: "010-0123-4567",
-    location: "서울 여의도", joinDate: "2020.11.30", birthDate: "1992.08.17",
-    manager: "오세진", engagementScore: 80, leaveBalance: 8, leaveUsed: 7,
-    attendanceRate: 96, skills: ["재무 분석", "Excel", "SAP", "회계"],
-    recentActivity: [
-      { date: "05.15", content: "Q1 재무 보고서 최종 검토" },
-      { date: "05.12", content: "예산 집행 현황 보고" },
-      { date: "05.08", content: "세무 신고 서류 제출" },
-    ],
-    color: "oklch(0.60 0.12 80)",
-  },
-  {
-    id: 11, name: "오세진", avatar: "오세", dept: "재무팀", role: "CFO", grade: "임원",
-    status: "재직", email: "sejin.oh@teampulse.kr", phone: "010-1111-2222",
-    location: "서울 여의도", joinDate: "2015.03.02", birthDate: "1980.05.25",
-    manager: "대표이사", engagementScore: 83, leaveBalance: 20, leaveUsed: 5,
-    attendanceRate: 95, skills: ["재무 전략", "M&A", "투자", "리더십"],
-    recentActivity: [
-      { date: "05.15", content: "이사회 보고 자료 준비" },
-      { date: "05.13", content: "투자사 미팅 — 시리즈 B 논의" },
-      { date: "05.10", content: "전사 예산 조정 회의 주재" },
-    ],
-    color: "oklch(0.45 0.10 240)",
-  },
-  {
-    id: 12, name: "신예린", avatar: "신예", dept: "영업팀", role: "Sales Representative", grade: "사원",
-    status: "수습", email: "yerin.shin@teampulse.kr", phone: "010-2222-3333",
-    location: "서울 여의도", joinDate: "2025.05.02", birthDate: "2000.09.11",
-    manager: "홍길동", engagementScore: 90, leaveBalance: 15, leaveUsed: 0,
-    attendanceRate: 100, skills: ["고객 응대", "제안서 작성", "PPT", "영어"],
-    recentActivity: [
-      { date: "05.15", content: "신규 고객사 콜드콜 20건 진행" },
-      { date: "05.14", content: "영업 교육 프로그램 이수" },
-      { date: "05.12", content: "첫 고객 미팅 동행 참여" },
-    ],
-    color: "oklch(0.65 0.18 60)",
-  },
-];
+function mapRow(e: Record<string, unknown>): Employee {
+  return {
+    id: e.id as number,
+    name: String(e.name ?? ""),
+    avatar: String(e.avatar ?? String(e.name ?? "").slice(0, 2)),
+    dept: String(e.dept ?? ""),
+    role: String(e.role ?? ""),
+    grade: String(e.grade ?? ""),
+    status: (e.status as Employee["status"]) ?? "재직",
+    email: String(e.email ?? ""),
+    phone: String(e.phone ?? ""),
+    location: String(e.location ?? ""),
+    joinDate: String(e.join_date ?? e.joinDate ?? ""),
+    birthDate: String(e.birth_date ?? e.birthDate ?? ""),
+    manager: String(e.manager ?? ""),
+    engagementScore: Number(e.engagement_score ?? e.engagementScore ?? 80),
+    leaveBalance: Number(e.leave_balance ?? e.leaveBalance ?? 15),
+    leaveUsed: Number(e.leave_used ?? e.leaveUsed ?? 0),
+    attendanceRate: Number(e.attendance_rate ?? e.attendanceRate ?? 100),
+    skills: Array.isArray(e.skills) ? e.skills : (typeof e.skills === "string" ? e.skills.split(",").map((s: string) => s.trim()).filter(Boolean) : []),
+    recentActivity: Array.isArray(e.recentActivity) ? e.recentActivity : (Array.isArray(e.recent_activity) ? e.recent_activity : []),
+    color: String(e.color ?? "oklch(0.65 0.14 185)"),
+    memo: e.memo ? String(e.memo) : undefined,
+  };
+}
 
+const INITIAL_EMPLOYEES: Employee[] = [];
 const DEPTS = ["전체", "개발팀", "마케팅", "디자인", "영업팀", "인사팀", "재무팀"];
 const STATUSES = ["전체", "재직", "수습", "휴직"];
 const GRADES = ["전체", "사원", "주임", "선임", "책임", "수석", "임원"];
@@ -648,7 +516,25 @@ function FilterChip({
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function EmployeesPage() {
-  const [employees, setEmployees] = useState<Employee[]>(INITIAL_EMPLOYEES);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // ─── DB에서 직원 목록 로드 ────────────────────────────────────────────
+  const loadEmployees = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const res = await fetch("/api/employees", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load");
+      const data = await res.json();
+      setEmployees((data.employees as Record<string, unknown>[]).map(mapRow));
+    } catch {
+      toast.error("직원 데이터를 불러오는 데 실패했습니다");
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadEmployees(); }, [loadEmployees]);
   const [query, setQuery] = useState("");
   const [deptFilter, setDeptFilter] = useState("전체");
   const [statusFilter, setStatusFilter] = useState("전체");
@@ -781,8 +667,23 @@ export default function EmployeesPage() {
         memo: String(row["메모"] ?? ""),
       })).filter((e) => e.name);
       if (newEmps.length === 0) { toast.error("유효한 직원 데이터가 없습니다 (이름 필드 필수)"); return; }
-      setEmployees((prev) => [...newEmps, ...prev]);
-      toast.success(`${newEmps.length}명의 직원이 업로드되었습니다`);
+      // API로 일괄 등록
+      const bulkRes = await fetch("/api/employees/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ employees: newEmps.map((e) => ({
+          name: e.name, avatar: e.avatar, dept: e.dept, role: e.role, grade: e.grade,
+          status: e.status, email: e.email, phone: e.phone, location: e.location,
+          join_date: e.joinDate, birth_date: e.birthDate, manager: e.manager,
+          engagement_score: e.engagementScore, leave_balance: e.leaveBalance,
+          leave_used: e.leaveUsed, attendance_rate: e.attendanceRate,
+          skills: e.skills, color: e.color, memo: e.memo || "",
+        })) }),
+      });
+      if (!bulkRes.ok) throw new Error("서버 등록 실패");
+      await loadEmployees();
+      toast.success(`${newEmps.length}명의 직원이 등록되었습니다`);
     } catch {
       toast.error("엑셀 파일 읽기 실패");
     }
@@ -821,27 +722,38 @@ export default function EmployeesPage() {
 
   const clearSelection = () => setSelectedIds(new Set());
 
-  const handleBulkLeaveApply = () => {
+  const handleBulkLeaveApply = async () => {
     setBulkApplying(true);
-    setTimeout(() => {
-      setEmployees((prev) =>
-        prev.map((e) => {
-          if (!selectedIds.has(e.id)) return e;
-          if (bulkLeaveMode === "add") {
-            return { ...e, leaveBalance: e.leaveBalance + bulkLeaveAmount };
-          } else {
-            return { ...e, leaveBalance: bulkLeaveAmount };
-          }
-        })
-      );
+    try {
+      const targets = employees.filter((e) => selectedIds.has(e.id));
+      await Promise.all(targets.map(async (e) => {
+        const newBalance = bulkLeaveMode === "add" ? e.leaveBalance + bulkLeaveAmount : bulkLeaveAmount;
+        await fetch(`/api/employees/${e.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            name: e.name, avatar: e.avatar, dept: e.dept, role: e.role, grade: e.grade,
+            status: e.status, email: e.email, phone: e.phone, location: e.location,
+            join_date: e.joinDate, birth_date: e.birthDate, manager: e.manager,
+            skills: e.skills, engagement_score: e.engagementScore,
+            leave_balance: newBalance, leave_used: e.leaveUsed,
+            attendance_rate: e.attendanceRate, color: e.color, memo: e.memo || "",
+          }),
+        });
+      }));
+      await loadEmployees();
       const modeLabel = bulkLeaveMode === "add" ? `+${bulkLeaveAmount}일 추가` : `${bulkLeaveAmount}일로 설정`;
       toast.success(`연차 일괄 부여 완료`, {
         description: `${selectedIds.size}명에게 연차 ${modeLabel}`,
       });
-      setBulkApplying(false);
       setBulkLeaveOpen(false);
       clearSelection();
-    }, 600);
+    } catch {
+      toast.error("연차 부여에 실패했습니다");
+    } finally {
+      setBulkApplying(false);
+    }
   };
 
   const filtered = useMemo(() => {
@@ -907,72 +819,59 @@ export default function EmployeesPage() {
     setModalOpen(true);
   };
 
-  // Handle form submit (add or update)
-  const handleFormSubmit = (data: EmployeeFormData) => {
-    setEmployees((prev) => {
-      const exists = prev.find((e) => e.id === data.id);
-      if (exists) {
-        // Update existing
-        const updated = prev.map((e) =>
-          e.id === data.id
-            ? {
-                ...e,
-                name: data.name,
-                avatar: data.avatar || data.name.slice(0, 2),
-                dept: data.dept,
-                role: data.role,
-                grade: data.grade,
-                status: data.status,
-                email: data.email,
-                phone: data.phone,
-                location: data.location,
-                joinDate: data.joinDate,
-                birthDate: data.birthDate,
-                manager: data.manager,
-                skills: data.skills,
-                engagementScore: data.engagementScore,
-                memo: data.memo,
-                color: data.color,
-                leaveBalance: data.leaveTotal !== undefined ? data.leaveTotal : e.leaveBalance,
-              }
-            : e
-        );
-        // Update selectedEmp if it's the one being edited
-        const updatedEmp = updated.find((e) => e.id === data.id);
-        if (updatedEmp && selectedEmp?.id === data.id) {
-          setSelectedEmp(updatedEmp);
-        }
-        return updated;
+  // Handle form submit (add or update) - API 연동
+  const handleFormSubmit = async (data: EmployeeFormData) => {
+    try {
+      const payload = {
+        name: data.name,
+        avatar: data.avatar || data.name.slice(0, 2),
+        dept: data.dept,
+        role: data.role,
+        grade: data.grade,
+        status: data.status,
+        email: data.email,
+        phone: data.phone,
+        location: data.location,
+        join_date: data.joinDate,
+        birth_date: data.birthDate,
+        manager: data.manager,
+        skills: data.skills,
+        engagement_score: data.engagementScore,
+        leave_balance: data.leaveTotal,
+        memo: data.memo,
+        color: data.color,
+      };
+      if (data.id) {
+        // 수정
+        const res = await fetch(`/api/employees/${data.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const result = await res.json();
+        const updated = mapRow(result.employee);
+        setEmployees((prev) => prev.map((e) => e.id === updated.id ? updated : e));
+        if (selectedEmp?.id === updated.id) setSelectedEmp(updated);
+        toast.success(`${updated.name} 정보가 수정되었습니다`);
       } else {
-        // Add new employee
-        const newEmp: Employee = {
-          id: data.id ?? Date.now(),
-          name: data.name,
-          avatar: data.name.slice(0, 2),
-          dept: data.dept,
-          role: data.role,
-          grade: data.grade,
-          status: data.status,
-          email: data.email,
-          phone: data.phone,
-          location: data.location,
-          joinDate: data.joinDate,
-          birthDate: data.birthDate,
-          manager: data.manager,
-          engagementScore: data.engagementScore,
-          leaveBalance: data.leaveTotal ?? 15,
-          leaveUsed: 0,
-          attendanceRate: 100,
-          skills: data.skills,
-          recentActivity: [
-            { date: new Date().toLocaleDateString("ko-KR", { month: "2-digit", day: "2-digit" }).replace(". ", ".").replace(".", ""), content: "TeamPulse에 등록되었습니다" },
-          ],
-          color: data.color,
-          memo: data.memo,
-        };
-        return [newEmp, ...prev];
+        // 신규 등록
+        const res = await fetch("/api/employees", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const result = await res.json();
+        const newEmp = mapRow(result.employee);
+        setEmployees((prev) => [newEmp, ...prev]);
+        toast.success(`${newEmp.name} 직원이 등록되었습니다`);
       }
-    });
+    } catch (err) {
+      toast.error("저장에 실패했습니다: " + String(err));
+    }
   };
 
   return (
@@ -1117,8 +1016,16 @@ export default function EmployeesPage() {
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto px-5 lg:px-7 py-5">
+          {/* 로딩 상태 */}
+          {isLoading ? (
+            <div className="flex flex-col items-center justify-center py-20 text-center">
+              <div className="w-8 h-8 border-3 border-[var(--teal)]/30 border-t-[var(--teal)] rounded-full animate-spin mb-4" />
+              <p className="text-sm text-muted-foreground">직원 데이터를 불러오는 중...</p>
+            </div>
+          ) : null}
+
           {/* 카드 뷰 선택 안내 */}
-          {viewMode === "card" && filtered.length > 0 && (
+          {!isLoading && viewMode === "card" && filtered.length > 0 && (
             <div className="flex items-center gap-3 mb-3 px-1">
               <Checkbox
                 checked={allFilteredSelected ? true : someFilteredSelected ? "indeterminate" : false}
@@ -1136,7 +1043,7 @@ export default function EmployeesPage() {
             </div>
           )}
 
-          {filtered.length === 0 ? (
+          {!isLoading && filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-center">
               <Search size={40} className="text-muted-foreground/30 mb-3" />
               <p className="text-sm font-medium text-foreground">검색 결과가 없습니다</p>
@@ -1156,7 +1063,7 @@ export default function EmployeesPage() {
                 </Button>
               </div>
             </div>
-          ) : viewMode === "card" ? (
+          ) : !isLoading && viewMode === "card" ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 stagger">
               {filtered.map((emp) => (
                 <div key={emp.id} className="relative">
@@ -1186,8 +1093,9 @@ export default function EmployeesPage() {
                 </div>
               ))}
             </div>
-          ) : (
+          ) : !isLoading ? (
             <div className="bg-white rounded-2xl shadow-sm border border-border overflow-hidden">
+              {/* 테이블 뷰 */}
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-border">
@@ -1310,7 +1218,7 @@ export default function EmployeesPage() {
                 </tbody>
               </table>
             </div>
-          )}
+          ) : null}
         </div>
       </div>
 

@@ -869,6 +869,140 @@ function vitePluginMessengerApi(): Plugin {
   };
 }
 
+// =============================================================================
+// Employees API Plugin - /api/employees/* 처리 (직원 CRUD)
+// =============================================================================
+function vitePluginEmployeesApi(): Plugin {
+  const DATABASE_URL = process.env.DATABASE_URL;
+  const JWT_SECRET = process.env.JWT_SECRET || "teampulse-secret-key";
+  const COOKIE_NAME = "tp_auth";
+
+  let _pool: any = null;
+  async function getPool() {
+    if (_pool) return _pool;
+    if (!DATABASE_URL) return null;
+    const mysql = await import("mysql2/promise");
+    _pool = mysql.createPool(DATABASE_URL);
+    return _pool;
+  }
+
+  function parseCookies(cookieHeader: string): Record<string, string> {
+    const cookies: Record<string, string> = {};
+    if (!cookieHeader) return cookies;
+    cookieHeader.split(";").forEach((part) => {
+      const [k, ...v] = part.trim().split("=");
+      if (k) cookies[k.trim()] = decodeURIComponent(v.join("="));
+    });
+    return cookies;
+  }
+
+  function readBody(req: any): Promise<any> {
+    return new Promise((resolve) => {
+      const existing = (req as any).body;
+      if (existing && typeof existing === "object") { resolve(existing); return; }
+      let raw = "";
+      req.on("data", (chunk: Buffer) => { raw += chunk.toString(); });
+      req.on("end", () => { try { resolve(JSON.parse(raw)); } catch { resolve({}); } });
+    });
+  }
+
+  function sendJson(res: any, status: number, data: unknown) {
+    const body = JSON.stringify(data);
+    res.writeHead(status, { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) });
+    res.end(body);
+  }
+
+  async function getUser(req: any) {
+    try {
+      const cookies = parseCookies(req.headers.cookie || "");
+      const token = cookies[COOKIE_NAME];
+      if (!token) return null;
+      const jwt = await import("jsonwebtoken");
+      const jwtLib = (jwt as any).default || jwt;
+      return jwtLib.verify(token, JWT_SECRET) as any;
+    } catch { return null; }
+  }
+
+  function mapEmployee(e: any) {
+    return {
+      ...e,
+      skills: e.skills ? e.skills.split(",").map((s: string) => s.trim()).filter(Boolean) : [],
+      recentActivity: e.recent_activity ? JSON.parse(e.recent_activity) : [],
+    };
+  }
+
+  return {
+    name: "manus-employees-api",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/employees", async (req: any, res: any, next: any) => {
+        const url = (req.url as string) || "";
+        const method = req.method as string;
+        const db = await getPool();
+        if (!db) return sendJson(res, 500, { error: "DB 연결 실패" });
+        const user = await getUser(req);
+        if (!user) return sendJson(res, 401, { error: "인증이 필요합니다" });
+
+        // GET /api/employees - 목록 조회
+        if ((url === "" || url === "/") && method === "GET") {
+          const [rows] = await db.execute("SELECT * FROM tp_employees ORDER BY id ASC");
+          return sendJson(res, 200, { employees: (rows as any[]).map(mapEmployee) });
+        }
+
+        // POST /api/employees/bulk - 일괄 등록
+        if (url === "/bulk" && method === "POST") {
+          if (user.role !== "admin") return sendJson(res, 403, { error: "관리자만 가능합니다" });
+          const body = await readBody(req);
+          const emps = body.employees as any[];
+          if (!emps || emps.length === 0) return sendJson(res, 400, { error: "데이터 없음" });
+          for (const e of emps) {
+            await db.execute(
+              `INSERT INTO tp_employees (name, avatar, dept, role, grade, status, email, phone, location, join_date, birth_date, manager, engagement_score, leave_balance, leave_used, attendance_rate, skills, color, memo, recent_activity) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+              [e.name, e.avatar || e.name.slice(0,2), e.dept||"미지정", e.role||"사원", e.grade||"사원", e.status||"재직", e.email||"", e.phone||"", e.location||"", e.join_date||"", e.birth_date||"", e.manager||"", e.engagement_score||80, e.leave_balance||15, e.leave_used||0, e.attendance_rate||100, Array.isArray(e.skills)?e.skills.join(","):(e.skills||""), e.color||"oklch(0.65 0.14 180)", e.memo||"", JSON.stringify([])]
+            );
+          }
+          return sendJson(res, 201, { count: emps.length });
+        }
+
+        // POST /api/employees - 신규 등록
+        if ((url === "" || url === "/") && method === "POST") {
+          if (user.role !== "admin") return sendJson(res, 403, { error: "관리자만 가능합니다" });
+          const body = await readBody(req);
+          const [result] = await db.execute(
+            `INSERT INTO tp_employees (name, avatar, dept, role, grade, status, email, phone, location, join_date, birth_date, manager, engagement_score, leave_balance, leave_used, attendance_rate, skills, color, memo, recent_activity) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+            [body.name, body.avatar||body.name.slice(0,2), body.dept||"미지정", body.role||"사원", body.grade||"사원", body.status||"재직", body.email||"", body.phone||"", body.location||"", body.join_date||"", body.birth_date||"", body.manager||"", body.engagement_score||80, body.leave_balance||15, 0, 100, Array.isArray(body.skills)?body.skills.join(","):(body.skills||""), body.color||"oklch(0.65 0.14 180)", body.memo||"", JSON.stringify([{date: new Date().toLocaleDateString("ko-KR"), content: "TeamPulse에 등록되었습니다"}])]
+          ) as any;
+          const [rows] = await db.execute("SELECT * FROM tp_employees WHERE id = ?", [(result as any).insertId]);
+          return sendJson(res, 201, { employee: mapEmployee((rows as any[])[0]) });
+        }
+
+        // PUT /api/employees/:id - 수정
+        const putMatch = url.match(/^\/?(\d+)$/);
+        if (putMatch && method === "PUT") {
+          if (user.role !== "admin") return sendJson(res, 403, { error: "관리자만 가능합니다" });
+          const id = putMatch[1];
+          const body = await readBody(req);
+          await db.execute(
+            `UPDATE tp_employees SET name=?, avatar=?, dept=?, role=?, grade=?, status=?, email=?, phone=?, location=?, join_date=?, birth_date=?, manager=?, engagement_score=?, leave_balance=?, leave_used=?, attendance_rate=?, skills=?, color=?, memo=? WHERE id=?`,
+            [body.name, body.avatar||body.name.slice(0,2), body.dept||"미지정", body.role||"사원", body.grade||"사원", body.status||"재직", body.email||"", body.phone||"", body.location||"", body.join_date||"", body.birth_date||"", body.manager||"", body.engagement_score||80, body.leave_balance||15, body.leave_used||0, body.attendance_rate||100, Array.isArray(body.skills)?body.skills.join(","):(body.skills||""), body.color||"oklch(0.65 0.14 180)", body.memo||"", id]
+          );
+          const [rows] = await db.execute("SELECT * FROM tp_employees WHERE id = ?", [id]);
+          return sendJson(res, 200, { employee: mapEmployee((rows as any[])[0]) });
+        }
+
+        // DELETE /api/employees/:id - 삭제
+        const delMatch = url.match(/^\/?(\d+)$/);
+        if (delMatch && method === "DELETE") {
+          if (user.role !== "admin") return sendJson(res, 403, { error: "관리자만 가능합니다" });
+          await db.execute("DELETE FROM tp_employees WHERE id = ?", [delMatch[1]]);
+          return sendJson(res, 200, { success: true });
+        }
+
+        next();
+      });
+    },
+  };
+}
+
 const plugins = [
   react(),
   tailwindcss(),
@@ -880,6 +1014,7 @@ const plugins = [
   vitePluginAdminUsersApi(),
   vitePluginCommunityApi(),
   vitePluginMessengerApi(),
+  vitePluginEmployeesApi(),
 ];
 
 export default defineConfig({

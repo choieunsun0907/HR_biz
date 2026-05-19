@@ -533,6 +533,111 @@ async function startServer() {
     return res.status(201).json({ message: rows[0] });
   });
 
+  // ─── 직원 관리 API ─────────────────────────────────────────
+  // 직원 목록 조회
+  app.get("/api/employees", async (req, res) => {
+    const user = (req as any).user;
+    if (!user) return res.status(401).json({ error: "인증이 필요합니다" });
+    const db = getPool();
+    if (!db) return res.status(500).json({ error: "DB 연결 실패" });
+    const { dept, status, search } = req.query as Record<string, string>;
+    let sql = "SELECT * FROM tp_employees WHERE 1=1";
+    const params: any[] = [];
+    if (dept && dept !== "전체") { sql += " AND dept = ?"; params.push(dept); }
+    if (status && status !== "전체") { sql += " AND status = ?"; params.push(status); }
+    if (search) { sql += " AND (name LIKE ? OR role LIKE ? OR email LIKE ?)"; params.push(`%${search}%`, `%${search}%`, `%${search}%`); }
+    sql += " ORDER BY id ASC";
+    const [rows] = await db.execute<mysql.RowDataPacket[]>(sql, params);
+    const employees = rows.map((e) => ({
+      ...e,
+      skills: e.skills ? e.skills.split(",").map((s: string) => s.trim()) : [],
+      recentActivity: e.recent_activity ? JSON.parse(e.recent_activity) : [],
+    }));
+    return res.json({ employees });
+  });
+
+  // 직원 단건 조회
+  app.get("/api/employees/:id", async (req, res) => {
+    const user = (req as any).user;
+    if (!user) return res.status(401).json({ error: "인증이 필요합니다" });
+    const db = getPool();
+    if (!db) return res.status(500).json({ error: "DB 연결 실패" });
+    const [rows] = await db.execute<mysql.RowDataPacket[]>("SELECT * FROM tp_employees WHERE id = ?", [req.params.id]);
+    if (!rows.length) return res.status(404).json({ error: "직원을 찾을 수 없습니다" });
+    const e = rows[0];
+    return res.json({ employee: { ...e, skills: e.skills ? e.skills.split(",").map((s: string) => s.trim()) : [], recentActivity: e.recent_activity ? JSON.parse(e.recent_activity) : [] } });
+  });
+
+  // 직원 추가
+  app.post("/api/employees", async (req, res) => {
+    const user = (req as any).user;
+    if (!user || user.role !== "admin") return res.status(403).json({ error: "관리자만 직원을 추가할 수 있습니다" });
+    const db = getPool();
+    if (!db) return res.status(500).json({ error: "DB 연결 실패" });
+    const { name, avatar, dept, role, grade, status, email, phone, location, join_date, birth_date, manager, engagement_score, leave_balance, leave_used, attendance_rate, skills, color, memo } = req.body;
+    if (!name) return res.status(400).json({ error: "이름은 필수입니다" });
+    const now = Date.now();
+    const skillsStr = Array.isArray(skills) ? skills.join(",") : (skills || "");
+    const [result] = await db.execute<mysql.ResultSetHeader>(
+      "INSERT INTO tp_employees (name,avatar,dept,role,grade,status,email,phone,location,join_date,birth_date,manager,engagement_score,leave_balance,leave_used,attendance_rate,skills,recent_activity,color,memo,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+      [name,avatar||name.slice(0,2),dept||'',role||'',grade||'사원',status||'재직',email||'',phone||'',location||'',join_date||'',birth_date||'',manager||'',engagement_score||80,leave_balance||15,leave_used||0,attendance_rate||100,skillsStr,'[]',color||'oklch(0.65 0.14 185)',memo||'',now,now]
+    );
+    const [rows] = await db.execute<mysql.RowDataPacket[]>("SELECT * FROM tp_employees WHERE id = ?", [result.insertId]);
+    const e = rows[0];
+    return res.status(201).json({ employee: { ...e, skills: e.skills ? e.skills.split(",").map((s: string) => s.trim()) : [], recentActivity: [] } });
+  });
+
+  // 직원 수정
+  app.put("/api/employees/:id", async (req, res) => {
+    const user = (req as any).user;
+    if (!user || user.role !== "admin") return res.status(403).json({ error: "관리자만 직원 정보를 수정할 수 있습니다" });
+    const db = getPool();
+    if (!db) return res.status(500).json({ error: "DB 연결 실패" });
+    const { name, avatar, dept, role, grade, status, email, phone, location, join_date, birth_date, manager, engagement_score, leave_balance, leave_used, attendance_rate, skills, color, memo } = req.body;
+    const now = Date.now();
+    const skillsStr = Array.isArray(skills) ? skills.join(",") : (skills || "");
+    await db.execute(
+      "UPDATE tp_employees SET name=?,avatar=?,dept=?,role=?,grade=?,status=?,email=?,phone=?,location=?,join_date=?,birth_date=?,manager=?,engagement_score=?,leave_balance=?,leave_used=?,attendance_rate=?,skills=?,color=?,memo=?,updated_at=? WHERE id=?",
+      [name,avatar,dept,role,grade,status,email,phone,location,join_date,birth_date,manager,engagement_score,leave_balance,leave_used,attendance_rate,skillsStr,color,memo,now,req.params.id]
+    );
+    const [rows] = await db.execute<mysql.RowDataPacket[]>("SELECT * FROM tp_employees WHERE id = ?", [req.params.id]);
+    if (!rows.length) return res.status(404).json({ error: "직원을 찾을 수 없습니다" });
+    const e = rows[0];
+    return res.json({ employee: { ...e, skills: e.skills ? e.skills.split(",").map((s: string) => s.trim()) : [], recentActivity: e.recent_activity ? JSON.parse(e.recent_activity) : [] } });
+  });
+
+  // 직원 삭제
+  app.delete("/api/employees/:id", async (req, res) => {
+    const user = (req as any).user;
+    if (!user || user.role !== "admin") return res.status(403).json({ error: "관리자만 직원을 삭제할 수 있습니다" });
+    const db = getPool();
+    if (!db) return res.status(500).json({ error: "DB 연결 실패" });
+    await db.execute("DELETE FROM tp_employees WHERE id = ?", [req.params.id]);
+    return res.json({ success: true });
+  });
+
+  // 직원 일괄 등록 (엑셀 업로드용)
+  app.post("/api/employees/bulk", async (req, res) => {
+    const user = (req as any).user;
+    if (!user || user.role !== "admin") return res.status(403).json({ error: "관리자만 일괄 등록할 수 있습니다" });
+    const db = getPool();
+    if (!db) return res.status(500).json({ error: "DB 연결 실패" });
+    const { employees } = req.body;
+    if (!Array.isArray(employees) || employees.length === 0) return res.status(400).json({ error: "직원 데이터가 없습니다" });
+    const now = Date.now();
+    let inserted = 0;
+    for (const e of employees) {
+      if (!e.name) continue;
+      const skillsStr = Array.isArray(e.skills) ? e.skills.join(",") : (e.skills || "");
+      await db.execute(
+        "INSERT INTO tp_employees (name,avatar,dept,role,grade,status,email,phone,location,join_date,birth_date,manager,engagement_score,leave_balance,leave_used,attendance_rate,skills,recent_activity,color,memo,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        [e.name,e.avatar||e.name.slice(0,2),e.dept||'',e.role||'',e.grade||'사원',e.status||'재직',e.email||'',e.phone||'',e.location||'',e.join_date||'',e.birth_date||'',e.manager||'',e.engagement_score||80,e.leave_balance||15,e.leave_used||0,e.attendance_rate||100,skillsStr,'[]',e.color||'oklch(0.65 0.14 185)',e.memo||'',now,now]
+      );
+      inserted++;
+    }
+    return res.status(201).json({ inserted });
+  });
+
   // ─── 정적 파일 서빙 ─────────────────────────────────────────
 
   const staticPath =
