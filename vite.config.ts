@@ -1030,17 +1030,28 @@ function vitePluginMasterDataApi(): Plugin {
     configureServer(server) {
       server.middlewares.use(async (req: any, res: any, next: any) => {
         const url = req.url || "";
+        const reorderMatch = url.match(/^\/api\/master\/([\w]+)\/reorder$/);
         const masterMatch = url.match(/^\/api\/master\/([\w]+)(?:\/(\d+))?/);
-        if (!masterMatch) return next();
-        const type = masterMatch[1];
-        const id = masterMatch[2];
+        if (!masterMatch && !reorderMatch) return next();
+        const type = (reorderMatch || masterMatch)![1];
+        const id = masterMatch?.[2];
         const table = MASTER_TABLES[type];
         if (!table) { res.statusCode = 400; res.end(JSON.stringify({ error: "잘못된 타입" })); return; }
         const mysql = await import("mysql2/promise");
         const db = await mysql.createConnection(process.env.DATABASE_URL || "");
         try {
           res.setHeader("Content-Type", "application/json");
-          if (req.method === "GET") {
+          // 순서 변경 (PATCH /api/master/:type/reorder)
+          if (reorderMatch && req.method === "PATCH") {
+            const body = await new Promise<any>((resolve) => { let d = ""; req.on("data", (c: any) => d += c); req.on("end", () => resolve(JSON.parse(d || "{}"))); });
+            const { ids } = body; // ids: number[] - 새 순서대로 정렬된 id 배열
+            if (!Array.isArray(ids)) { res.statusCode = 400; res.end(JSON.stringify({ error: "ids 배열 필요" })); return; }
+            for (let i = 0; i < ids.length; i++) {
+              await db.execute(`UPDATE ${table} SET sort_order = ? WHERE id = ?`, [i + 1, ids[i]]);
+            }
+            const [rows] = await db.execute(`SELECT * FROM ${table} ORDER BY sort_order ASC, id ASC`);
+            res.end(JSON.stringify({ items: rows }));
+          } else if (req.method === "GET") {
             const [rows] = await db.execute(`SELECT * FROM ${table} ORDER BY sort_order ASC, id ASC`);
             res.end(JSON.stringify({ items: rows }));
           } else if (req.method === "POST") {

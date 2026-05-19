@@ -11,6 +11,21 @@
 
 import { useState, useMemo, useCallback, useEffect } from "react";
 import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import type { DragEndEvent } from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import {
   CalendarDays,
   Bell,
   Building2,
@@ -43,6 +58,7 @@ import {
   Briefcase,
   Tag,
   Building,
+  GripVertical,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -1423,6 +1439,69 @@ const MASTER_TYPES: MasterType[] = [
   { key: "locations",   label: "근무지", icon: MapPin,   secondaryLabel: "주소" },
 ];
 
+// ─── Sortable Row ─────────────────────────────────────────────────────────────
+function SortableRow({
+  item, type, editId, editName, editSecondary, saving,
+  setEditId, setEditName, setEditSecondary, onEdit, onDelete,
+}: {
+  item: MasterItem; type: MasterType;
+  editId: number | null; editName: string; editSecondary: string; saving: boolean;
+  setEditId: (id: number | null) => void;
+  setEditName: (v: string) => void;
+  setEditSecondary: (v: string) => void;
+  onEdit: (id: number) => void;
+  onDelete: (id: number, name: string) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    position: isDragging ? "relative" as const : undefined,
+    zIndex: isDragging ? 50 : undefined,
+  };
+  return (
+    <div ref={setNodeRef} style={style}
+      className="flex items-center gap-2 px-3 py-2 rounded-xl bg-muted/40 hover:bg-muted/70 transition-colors">
+      {/* 드래그 핸들 */}
+      <button {...attributes} {...listeners}
+        className="cursor-grab active:cursor-grabbing p-0.5 text-muted-foreground/40 hover:text-muted-foreground transition-colors touch-none shrink-0"
+        tabIndex={-1}>
+        <GripVertical size={14} />
+      </button>
+      {editId === item.id ? (
+        <>
+          <input value={editName} onChange={(e) => setEditName(e.target.value)}
+            className="flex-1 min-w-0 h-7 px-2 text-xs rounded-lg border border-border bg-background focus:outline-none" autoFocus />
+          <input value={editSecondary} onChange={(e) => setEditSecondary(e.target.value)}
+            placeholder={type.secondaryLabel}
+            className="w-28 h-7 px-2 text-xs rounded-lg border border-border bg-background focus:outline-none" />
+          <Button size="sm" className="h-6 px-2 text-xs rounded-lg text-white" style={{ background: "var(--teal)" }}
+            onClick={() => onEdit(item.id)} disabled={saving}>
+            {saving ? <RefreshCw size={11} className="animate-spin" /> : "저장"}
+          </Button>
+          <Button size="sm" variant="ghost" className="h-6 px-2 text-xs rounded-lg" onClick={() => setEditId(null)}>취소</Button>
+        </>
+      ) : (
+        <>
+          <span className="flex-1 text-xs font-medium text-foreground">{item.name}</span>
+          {(item.description || item.address) && (
+            <span className="text-xs text-muted-foreground truncate max-w-[120px]">{item.description || item.address}</span>
+          )}
+          <button onClick={() => { setEditId(item.id); setEditName(item.name); setEditSecondary(item.description || item.address || ""); }}
+            className="p-1 rounded-lg hover:bg-background transition-colors text-muted-foreground hover:text-foreground">
+            <Pencil size={12} />
+          </button>
+          <button onClick={() => onDelete(item.id, item.name)}
+            className="p-1 rounded-lg hover:bg-red-50 transition-colors text-muted-foreground hover:text-red-500">
+            <Trash2 size={12} />
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
 function MasterSection({ type }: { type: MasterType }) {
   const [items, setItems] = useState<MasterItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1432,6 +1511,10 @@ function MasterSection({ type }: { type: MasterType }) {
   const [editName, setEditName] = useState("");
   const [editSecondary, setEditSecondary] = useState("");
   const [saving, setSaving] = useState(false);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1444,6 +1527,27 @@ function MasterSection({ type }: { type: MasterType }) {
   }, [type.key]);
 
   useEffect(() => { load(); }, [load]);
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = items.findIndex((i) => i.id === active.id);
+    const newIndex = items.findIndex((i) => i.id === over.id);
+    const newItems = arrayMove(items, oldIndex, newIndex);
+    setItems(newItems); // 낙관적 업데이트
+    try {
+      const res = await fetch(`/api/master/${type.key}/reorder`, {
+        method: "PATCH", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: newItems.map((i) => i.id) }),
+      });
+      if (!res.ok) throw new Error();
+      toast.success("순서가 저장되었습니다");
+    } catch {
+      toast.error("순서 저장 실패");
+      await load(); // 실패 시 원래 순서로 복원
+    }
+  };
 
   const handleAdd = async () => {
     if (!newName.trim()) { toast.error("이름을 입력해주세요"); return; }
@@ -1503,7 +1607,7 @@ function MasterSection({ type }: { type: MasterType }) {
         </div>
         <div>
           <h3 className="text-sm font-semibold text-foreground">{type.label} 관리</h3>
-          <p className="text-xs text-muted-foreground">{items.length}개 항목</p>
+          <p className="text-xs text-muted-foreground">{items.length}개 항목 · 드래그로 순서 변경</p>
         </div>
       </div>
       <div className="flex gap-2">
@@ -1525,41 +1629,28 @@ function MasterSection({ type }: { type: MasterType }) {
       ) : items.length === 0 ? (
         <p className="text-xs text-muted-foreground text-center py-4">등록된 {type.label}이 없습니다</p>
       ) : (
-        <div className="space-y-1.5">
-          {items.map((item) => (
-            <div key={item.id} className="flex items-center gap-2 px-3 py-2 rounded-xl bg-muted/40 hover:bg-muted/70 transition-colors">
-              {editId === item.id ? (
-                <>
-                  <input value={editName} onChange={(e) => setEditName(e.target.value)}
-                    className="flex-1 min-w-0 h-7 px-2 text-xs rounded-lg border border-border bg-background focus:outline-none" autoFocus />
-                  <input value={editSecondary} onChange={(e) => setEditSecondary(e.target.value)}
-                    placeholder={type.secondaryLabel}
-                    className="w-28 h-7 px-2 text-xs rounded-lg border border-border bg-background focus:outline-none" />
-                  <Button size="sm" className="h-6 px-2 text-xs rounded-lg text-white" style={{ background: "var(--teal)" }}
-                    onClick={() => handleEdit(item.id)} disabled={saving}>
-                    {saving ? <RefreshCw size={11} className="animate-spin" /> : "저장"}
-                  </Button>
-                  <Button size="sm" variant="ghost" className="h-6 px-2 text-xs rounded-lg" onClick={() => setEditId(null)}>취소</Button>
-                </>
-              ) : (
-                <>
-                  <span className="flex-1 text-xs font-medium text-foreground">{item.name}</span>
-                  {(item.description || item.address) && (
-                    <span className="text-xs text-muted-foreground truncate max-w-[120px]">{item.description || item.address}</span>
-                  )}
-                  <button onClick={() => { setEditId(item.id); setEditName(item.name); setEditSecondary(item.description || item.address || ""); }}
-                    className="p-1 rounded-lg hover:bg-background transition-colors text-muted-foreground hover:text-foreground">
-                    <Pencil size={12} />
-                  </button>
-                  <button onClick={() => handleDelete(item.id, item.name)}
-                    className="p-1 rounded-lg hover:bg-red-50 transition-colors text-muted-foreground hover:text-red-500">
-                    <Trash2 size={12} />
-                  </button>
-                </>
-              )}
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext items={items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
+            <div className="space-y-1.5">
+              {items.map((item) => (
+                <SortableRow
+                  key={item.id}
+                  item={item}
+                  type={type}
+                  editId={editId}
+                  editName={editName}
+                  editSecondary={editSecondary}
+                  saving={saving}
+                  setEditId={setEditId}
+                  setEditName={setEditName}
+                  setEditSecondary={setEditSecondary}
+                  onEdit={handleEdit}
+                  onDelete={handleDelete}
+                />
+              ))}
             </div>
-          ))}
-        </div>
+          </SortableContext>
+        </DndContext>
       )}
     </div>
   );

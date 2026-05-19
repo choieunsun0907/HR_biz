@@ -5,13 +5,13 @@
  * 3-step wizard modal:
  *   Step 1 — 기본 정보 (이름, 부서, 직책, 직급, 재직 상태)
  *   Step 2 — 연락처 & 인사 정보 (이메일, 전화, 위치, 입사일, 생년월일, 직속 상관)
- *   Step 3 — 스킬 & 추가 정보 (스킬 태그, 참여 점수, 메모)
+ *   Step 3 — 추가 정보 (메모)
  *
  * Features:
  * - 신규 등록 / 수정 모드 자동 전환
  * - 필수 필드 인라인 유효성 검사
- * - 스킬 태그 동적 추가/삭제
  * - 아바타 색상 자동 배정
+ * - 부서/직급/직책/근무지 DB 마스터 데이터 연동
  * - 완료 시 목록에 즉시 반영
  */
 
@@ -29,16 +29,15 @@ import {
   ChevronLeft,
   Check,
   X,
-  Plus,
   User,
   Mail,
   Phone,
   MapPin,
   Calendar,
   Briefcase,
-  Building2,
   Star,
   AlertCircle,
+  RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -76,10 +75,7 @@ interface EmployeeFormModalProps {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const DEPTS = ["개발팀", "마케팅", "디자인", "영업팀", "인사팀", "재무팀", "운영팀", "법무팀"];
-const GRADES = ["사원", "주임", "선임", "책임", "수석", "임원"];
 const STATUSES: Array<"재직" | "수습" | "휴직"> = ["재직", "수습", "휴직"];
-const LOCATIONS = ["서울 강남구", "서울 마포구", "서울 성동구", "서울 여의도", "경기 성남시", "경기 수원시", "부산 해운대구"];
 
 const AVATAR_COLORS = [
   "oklch(0.65 0.14 185)",
@@ -92,17 +88,6 @@ const AVATAR_COLORS = [
   "oklch(0.55 0.10 220)",
 ];
 
-const SKILL_SUGGESTIONS: Record<string, string[]> = {
-  개발팀: ["React", "TypeScript", "Node.js", "Python", "Java", "Spring Boot", "AWS", "Docker", "Kubernetes", "PostgreSQL"],
-  마케팅: ["SNS 마케팅", "콘텐츠 기획", "SEO", "Google Ads", "카피라이팅", "브랜드 전략", "데이터 분석"],
-  디자인: ["Figma", "Photoshop", "Illustrator", "UX Research", "Prototyping", "Motion Design", "3D"],
-  영업팀: ["B2B 영업", "CRM", "협상", "고객 관리", "제안서 작성", "영어"],
-  인사팀: ["채용", "온보딩", "노무", "성과 관리", "교육 기획", "Excel"],
-  재무팀: ["재무 분석", "회계", "SAP", "Excel", "세무", "예산 관리"],
-  운영팀: ["프로세스 개선", "데이터 분석", "프로젝트 관리", "Excel"],
-  법무팀: ["계약 검토", "법률 자문", "규정 준수", "리스크 관리"],
-};
-
 const STEPS = [
   { label: "기본 정보", icon: User },
   { label: "연락처 · 인사", icon: Mail },
@@ -111,16 +96,7 @@ const STEPS = [
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const EMPTY_FORM: EmployeeFormData = {
-  name: "", dept: "개발팀", role: "", grade: "사원", status: "재직",
-  email: "", phone: "", location: "서울 강남구", joinDate: "", birthDate: "",
-  manager: "", skills: [], engagementScore: 80, memo: "",
-  color: AVATAR_COLORS[0], avatar: "",
-  leaveTotal: 15,
-};
-
 function getAvatarText(name: string) {
-  // 전체 이름 표시 (2자 이상이면 성제외 이름, 1자면 전체)
   return name || "??";
 }
 
@@ -132,6 +108,28 @@ function FieldError({ msg }: { msg?: string }) {
       {msg}
     </div>
   );
+}
+
+// ─── useMasterData hook ───────────────────────────────────────────────────────
+
+type MasterItem = { id: number; name: string; description?: string; address?: string };
+
+function useMasterData(type: string) {
+  const [items, setItems] = useState<MasterItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    fetch(`/api/master/${type}`, { credentials: "include" })
+      .then((r) => r.json())
+      .then((d) => { if (!cancelled) setItems(d.items || []); })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [type]);
+
+  return { items, loading };
 }
 
 // ─── Step Indicator ───────────────────────────────────────────────────────────
@@ -190,6 +188,10 @@ function Step1({
   errors: Partial<Record<keyof EmployeeFormData, string>>;
   onChange: (field: keyof EmployeeFormData, value: string) => void;
 }) {
+  const { items: depts, loading: deptsLoading } = useMasterData("departments");
+  const { items: grades, loading: gradesLoading } = useMasterData("grades");
+  const { items: positions, loading: positionsLoading } = useMasterData("positions");
+
   return (
     <div className="space-y-4">
       {/* Avatar Preview */}
@@ -246,29 +248,42 @@ function Step1({
           <label className="block text-sm font-medium text-foreground mb-1.5">
             부서 <span className="text-destructive">*</span>
           </label>
-          <select
-            value={form.dept}
-            onChange={(e) => onChange("dept", e.target.value)}
-            className="w-full px-3 py-2.5 text-sm border border-border rounded-xl outline-none focus:ring-2 focus:ring-[var(--teal)]/30 bg-white"
-          >
-            {DEPTS.map((d) => <option key={d}>{d}</option>)}
-          </select>
+          {deptsLoading ? (
+            <div className="flex items-center gap-2 h-10 px-3 border border-border rounded-xl text-xs text-muted-foreground">
+              <RefreshCw size={12} className="animate-spin" /> 로딩 중...
+            </div>
+          ) : (
+            <select
+              value={form.dept}
+              onChange={(e) => onChange("dept", e.target.value)}
+              className="w-full px-3 py-2.5 text-sm border border-border rounded-xl outline-none focus:ring-2 focus:ring-[var(--teal)]/30 bg-white"
+            >
+              <option value="">-- 부서 선택 --</option>
+              {depts.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
+            </select>
+          )}
         </div>
         <div>
           <label className="block text-sm font-medium text-foreground mb-1.5">
             직책 <span className="text-destructive">*</span>
           </label>
-          <input
-            type="text"
-            placeholder="Frontend Engineer"
-            value={form.role}
-            onChange={(e) => onChange("role", e.target.value)}
-            className={cn(
-              "w-full px-3 py-2.5 text-sm border rounded-xl outline-none transition-all",
-              "focus:ring-2 focus:ring-[var(--teal)]/30 placeholder:text-muted-foreground/50",
-              errors.role ? "border-destructive bg-red-50/30" : "border-border"
-            )}
-          />
+          {positionsLoading ? (
+            <div className="flex items-center gap-2 h-10 px-3 border border-border rounded-xl text-xs text-muted-foreground">
+              <RefreshCw size={12} className="animate-spin" /> 로딩 중...
+            </div>
+          ) : (
+            <select
+              value={form.role}
+              onChange={(e) => onChange("role", e.target.value)}
+              className={cn(
+                "w-full px-3 py-2.5 text-sm border rounded-xl outline-none focus:ring-2 focus:ring-[var(--teal)]/30 bg-white",
+                errors.role ? "border-destructive bg-red-50/30" : "border-border"
+              )}
+            >
+              <option value="">-- 직책 선택 --</option>
+              {positions.map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
+            </select>
+          )}
           <FieldError msg={errors.role} />
         </div>
       </div>
@@ -277,13 +292,20 @@ function Step1({
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className="block text-sm font-medium text-foreground mb-1.5">직급</label>
-          <select
-            value={form.grade}
-            onChange={(e) => onChange("grade", e.target.value)}
-            className="w-full px-3 py-2.5 text-sm border border-border rounded-xl outline-none focus:ring-2 focus:ring-[var(--teal)]/30 bg-white"
-          >
-            {GRADES.map((g) => <option key={g}>{g}</option>)}
-          </select>
+          {gradesLoading ? (
+            <div className="flex items-center gap-2 h-10 px-3 border border-border rounded-xl text-xs text-muted-foreground">
+              <RefreshCw size={12} className="animate-spin" /> 로딩 중...
+            </div>
+          ) : (
+            <select
+              value={form.grade}
+              onChange={(e) => onChange("grade", e.target.value)}
+              className="w-full px-3 py-2.5 text-sm border border-border rounded-xl outline-none focus:ring-2 focus:ring-[var(--teal)]/30 bg-white"
+            >
+              <option value="">-- 직급 선택 --</option>
+              {grades.map((g) => <option key={g.id} value={g.name}>{g.name}</option>)}
+            </select>
+          )}
         </div>
         <div>
           <label className="block text-sm font-medium text-foreground mb-1.5">재직 상태</label>
@@ -325,6 +347,8 @@ function Step2({
   errors: Partial<Record<keyof EmployeeFormData, string>>;
   onChange: (field: keyof EmployeeFormData, value: string) => void;
 }) {
+  const { items: locations, loading: locationsLoading } = useMasterData("locations");
+
   // 입사일 변경 시 연차 자동 계산
   const autoCalc = form.joinDate
     ? calcLeaveByPolicy(form.joinDate, loadPolicy())
@@ -369,7 +393,6 @@ function Step2({
           placeholder="010-0000-0000"
           value={form.phone}
           onChange={(e) => {
-            // Auto-format phone number
             const raw = e.target.value.replace(/\D/g, "").slice(0, 11);
             const fmt = raw.length <= 3 ? raw
               : raw.length <= 7 ? `${raw.slice(0, 3)}-${raw.slice(3)}`
@@ -385,13 +408,24 @@ function Step2({
         <label className="block text-sm font-medium text-foreground mb-1.5">
           <span className="flex items-center gap-1.5"><MapPin size={13} />근무지</span>
         </label>
-        <select
-          value={form.location}
-          onChange={(e) => onChange("location", e.target.value)}
-          className="w-full px-3 py-2.5 text-sm border border-border rounded-xl outline-none focus:ring-2 focus:ring-[var(--teal)]/30 bg-white"
-        >
-          {LOCATIONS.map((l) => <option key={l}>{l}</option>)}
-        </select>
+        {locationsLoading ? (
+          <div className="flex items-center gap-2 h-10 px-3 border border-border rounded-xl text-xs text-muted-foreground">
+            <RefreshCw size={12} className="animate-spin" /> 로딩 중...
+          </div>
+        ) : (
+          <select
+            value={form.location}
+            onChange={(e) => onChange("location", e.target.value)}
+            className="w-full px-3 py-2.5 text-sm border border-border rounded-xl outline-none focus:ring-2 focus:ring-[var(--teal)]/30 bg-white"
+          >
+            <option value="">-- 근무지 선택 --</option>
+            {locations.map((l) => (
+              <option key={l.id} value={l.name}>
+                {l.name}{l.address ? ` (${l.address})` : ""}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
 
       {/* 입사일 + 생년월일 */}
@@ -472,33 +506,15 @@ function Step2({
   );
 }
 
-// ─── Step 3: 스킬 & 추가 정보 ─────────────────────────────────────────────────
+// ─── Step 3: 추가 정보 ────────────────────────────────────────────────────────
 
 function Step3({
   form,
   onChange,
-  onSkillsChange,
 }: {
   form: EmployeeFormData;
   onChange: (field: keyof EmployeeFormData, value: string) => void;
-  onSkillsChange: (skills: string[]) => void;
 }) {
-  const [skillInput, setSkillInput] = useState("");
-  const suggestions = (SKILL_SUGGESTIONS[form.dept] || []).filter(
-    (s) => !form.skills.includes(s)
-  );
-
-  const addSkill = (skill: string) => {
-    const trimmed = skill.trim();
-    if (!trimmed || form.skills.includes(trimmed)) return;
-    onSkillsChange([...form.skills, trimmed]);
-    setSkillInput("");
-  };
-
-  const removeSkill = (skill: string) => {
-    onSkillsChange(form.skills.filter((s) => s !== skill));
-  };
-
   return (
     <div className="space-y-4">
       {/* 메모 */}
@@ -525,7 +541,7 @@ function Step3({
           <div>
             <div className="text-sm font-bold text-foreground">{form.name || "—"}</div>
             <div className="text-xs text-muted-foreground">
-              {form.dept} · {form.role || "—"} · {form.grade}
+              {form.dept || "—"} · {form.role || "—"} · {form.grade || "—"}
             </div>
             <div className="text-xs text-muted-foreground">{form.email || "—"}</div>
           </div>
@@ -548,6 +564,14 @@ function Step3({
 }
 
 // ─── Main Modal ───────────────────────────────────────────────────────────────
+
+const EMPTY_FORM: EmployeeFormData = {
+  name: "", dept: "", role: "", grade: "", status: "재직",
+  email: "", phone: "", location: "", joinDate: "", birthDate: "",
+  manager: "", skills: [], engagementScore: 80, memo: "",
+  color: AVATAR_COLORS[0], avatar: "",
+  leaveTotal: 15,
+};
 
 export default function EmployeeFormModal({
   open,
@@ -585,17 +609,13 @@ export default function EmployeeFormModal({
     if (errors[field]) setErrors((prev) => ({ ...prev, [field]: undefined }));
   };
 
-  const handleSkillsChange = (skills: string[]) => {
-    setForm((prev) => ({ ...prev, skills }));
-  };
-
   // Validate per step
   const validate = (s: number): boolean => {
     const newErrors: Partial<Record<keyof EmployeeFormData, string>> = {};
     if (s === 0) {
       if (!form.name.trim()) newErrors.name = "이름을 입력해주세요";
       else if (form.name.trim().length < 2) newErrors.name = "이름은 2자 이상이어야 합니다";
-      if (!form.role.trim()) newErrors.role = "직책을 입력해주세요";
+      if (!form.role.trim()) newErrors.role = "직책을 선택해주세요";
     }
     if (s === 1) {
       if (!form.email.trim()) newErrors.email = "이메일을 입력해주세요";
@@ -622,7 +642,6 @@ export default function EmployeeFormModal({
       ...form,
       avatar: getAvatarText(form.name),
       id: initialData?.id ?? Date.now(),
-      // Format joinDate display
       joinDate: form.joinDate
         ? new Date(form.joinDate).toLocaleDateString("ko-KR", {
             year: "numeric", month: "2-digit", day: "2-digit",
@@ -682,7 +701,7 @@ export default function EmployeeFormModal({
               <Step2 form={form} errors={errors} onChange={handleChange} />
             )}
             {step === 2 && (
-              <Step3 form={form} onChange={handleChange} onSkillsChange={handleSkillsChange} />
+              <Step3 form={form} onChange={handleChange} />
             )}
           </div>
         </div>

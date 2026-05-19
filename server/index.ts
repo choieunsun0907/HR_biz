@@ -776,7 +776,7 @@ async function startServer() {
   });
 
   // 마스터 항목 삭제
-  app.delete("/api/master/:type/:id", async (req, res) => {
+    app.delete("/api/master/:type/:id", async (req, res) => {
     const user = getUser(req);
     if (!user || user.role !== "admin") return res.status(403).json({ error: "관리자만 가능합니다" });
     const table = MASTER_TABLES[req.params.type];
@@ -786,8 +786,22 @@ async function startServer() {
     await db.execute(`DELETE FROM ${table} WHERE id = ?`, [req.params.id]);
     return res.json({ success: true });
   });
-
-
+  // 마스터 순서 변경
+  app.patch("/api/master/:type/reorder", async (req, res) => {
+    const user = getUser(req);
+    if (!user || user.role !== "admin") return res.status(403).json({ error: "관리자만 가능합니다" });
+    const table = MASTER_TABLES[req.params.type];
+    if (!table) return res.status(400).json({ error: "잘못된 타입" });
+    const db = getPool();
+    if (!db) return res.status(500).json({ error: "DB 연결 실패" });
+    const { ids } = req.body;
+    if (!Array.isArray(ids)) return res.status(400).json({ error: "ids 배열 필요" });
+    for (let i = 0; i < ids.length; i++) {
+      await db.execute(`UPDATE ${table} SET sort_order = ? WHERE id = ?`, [i + 1, ids[i]]);
+    }
+    const [rows] = await db.execute(`SELECT * FROM ${table} ORDER BY sort_order ASC, id ASC`);
+    return res.json({ items: rows });
+  });
   // ─── 문서 관리 API ─────────────────────────────────────────────────────────
 
   // 문서 목록 조회

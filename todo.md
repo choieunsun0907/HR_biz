@@ -30,3 +30,9 @@
 - [x] 조직도 DB 연동 - 직원 추가 시 자동 반영
 - [x] 문서관리 탭 활성화 (업로드·목록·다운로드)
 - [x] 쿠키 SameSite=None; Secure 설정 (HTTPS 환경 브라우저 인증 오류 수정)
+
+## 조직 마스터 & 직원 폼 DB 연동
+- [x] 마스터 데이터 API에 순서 변경(PATCH /api/master/:type/reorder) 엔드포인트 추가 (vite.config.ts + server/index.ts)
+- [x] SettingsPage 마스터 데이터 탭에 드래그앤드롭 순서 변경 UI 구현 (@dnd-kit)
+- [x] EmployeeFormModal 부서/직급/직책/근무지 선택 필드를 DB 마스터 데이터와 연동
+- [x] EmployeesPage 필터 드롭다운(부서/직급)도 DB 마스터 데이터와 연동

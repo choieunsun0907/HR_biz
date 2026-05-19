@@ -116,9 +116,19 @@ function mapRow(e: Record<string, unknown>): Employee {
 }
 
 const INITIAL_EMPLOYEES: Employee[] = [];
-const DEPTS = ["전체", "개발팀", "마케팅", "디자인", "영업팀", "인사팀", "재무팀"];
 const STATUSES = ["전체", "재직", "수습", "휴직"];
-const GRADES = ["전체", "사원", "주임", "선임", "책임", "수석", "임원"];
+
+// DB 마스터 데이터 훅 (필터 드롭다운용)
+function useMasterFilter(type: string) {
+  const [items, setItems] = useState<string[]>(["전체"]);
+  useEffect(() => {
+    fetch(`/api/master/${type}`, { credentials: "include" })
+      .then((r) => r.json())
+      .then((d) => setItems(["전체", ...(d.items || []).map((i: { name: string }) => i.name)]))
+      .catch(() => {});
+  }, [type]);
+  return items;
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -539,6 +549,9 @@ export default function EmployeesPage() {
   const [deptFilter, setDeptFilter] = useState("전체");
   const [statusFilter, setStatusFilter] = useState("전체");
   const [gradeFilter, setGradeFilter] = useState("전체");
+  // DB 마스터 데이터 로드
+  const DEPTS = useMasterFilter("departments");
+  const GRADES = useMasterFilter("grades");
   const [viewMode, setViewMode] = useState<"card" | "table">("card");
   const [selectedEmp, setSelectedEmp] = useState<Employee | null>(null);
 
