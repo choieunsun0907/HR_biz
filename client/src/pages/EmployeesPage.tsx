@@ -646,7 +646,7 @@ export default function EmployeesPage() {
       const newEmps: Employee[] = rows.map((row, idx) => ({
         id: Date.now() + idx,
         name: String(row["이름"] ?? row["name"] ?? "").trim(),
-        avatar: String(row["이름"] ?? "").slice(0, 2),
+        avatar: String(row["이름"] ?? row["name"] ?? "").trim(),
         dept: String(row["부서"] ?? row["dept"] ?? "").trim(),
         role: String(row["직책"] ?? row["role"] ?? "").trim(),
         grade: String(row["직급"] ?? row["grade"] ?? "일반").trim(),
@@ -657,11 +657,11 @@ export default function EmployeesPage() {
         joinDate: String(row["입사일"] ?? row["joinDate"] ?? "").trim(),
         birthDate: String(row["생년월일"] ?? row["birthDate"] ?? "").trim(),
         manager: String(row["담당매니저"] ?? row["manager"] ?? "").trim(),
-        engagementScore: Number(row["참여점수"] ?? 80),
+        engagementScore: 80,
         leaveBalance: Number(row["잔여연차"] ?? 15),
         leaveUsed: Number(row["사용연차"] ?? 0),
         attendanceRate: Number(row["근무율(%)"] ?? 100),
-        skills: String(row["스킬"] ?? "").split(",").map((s: string) => s.trim()).filter(Boolean),
+        skills: [],
         recentActivity: [{ date: new Date().toLocaleDateString("ko-KR", { month: "2-digit", day: "2-digit" }).replace(". ", ".").replace(".", ""), content: "엑셀에서 등록되었습니다" }],
         color: `oklch(0.65 0.14 ${(idx * 37) % 360})`,
         memo: String(row["메모"] ?? ""),
@@ -824,7 +824,7 @@ export default function EmployeesPage() {
     try {
       const payload = {
         name: data.name,
-        avatar: data.avatar || data.name.slice(0, 2),
+        avatar: data.avatar || data.name,
         dept: data.dept,
         role: data.role,
         grade: data.grade,

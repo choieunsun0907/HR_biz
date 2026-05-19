@@ -1015,7 +1015,132 @@ const plugins = [
   vitePluginCommunityApi(),
   vitePluginMessengerApi(),
   vitePluginEmployeesApi(),
+  vitePluginMasterDataApi(),
+  vitePluginDocumentsApi(),
 ];
+
+function vitePluginMasterDataApi(): Plugin {
+  const MASTER_TABLES: Record<string, string> = {
+    departments: "tp_departments",
+    grades: "tp_grades",
+    positions: "tp_positions",
+    locations: "tp_locations",
+  };
+  return {
+    name: "vite-plugin-master-data-api",
+    configureServer(server) {
+      server.middlewares.use(async (req: any, res: any, next: any) => {
+        const url = req.url || "";
+        const masterMatch = url.match(/^\/api\/master\/([\w]+)(?:\/(\d+))?/);
+        if (!masterMatch) return next();
+        const type = masterMatch[1];
+        const id = masterMatch[2];
+        const table = MASTER_TABLES[type];
+        if (!table) { res.statusCode = 400; res.end(JSON.stringify({ error: "잘못된 타입" })); return; }
+        const mysql = await import("mysql2/promise");
+        const db = await mysql.createConnection(process.env.DATABASE_URL || "");
+        try {
+          res.setHeader("Content-Type", "application/json");
+          if (req.method === "GET") {
+            const [rows] = await db.execute(`SELECT * FROM ${table} ORDER BY sort_order ASC, id ASC`);
+            res.end(JSON.stringify({ items: rows }));
+          } else if (req.method === "POST") {
+            const body = await new Promise<any>((resolve) => { let d = ""; req.on("data", (c: any) => d += c); req.on("end", () => resolve(JSON.parse(d || "{}"))); });
+            const { name, description, address } = body;
+            if (!name?.trim()) { res.statusCode = 400; res.end(JSON.stringify({ error: "이름은 필수" })); return; }
+            const now = Date.now();
+            const [rows2]: any = await db.execute(`SELECT MAX(sort_order) as max_order FROM ${table}`);
+            const nextOrder = ((rows2[0])?.max_order ?? 0) + 1;
+            const extraField = type === "locations" ? ", address" : ", description";
+            const extraVal = type === "locations" ? address || "" : description || "";
+            const [result]: any = await db.execute(`INSERT INTO ${table} (name${extraField}, sort_order, created_at) VALUES (?, ?, ?, ?)`, [name.trim(), extraVal, nextOrder, now]);
+            const [newRows]: any = await db.execute(`SELECT * FROM ${table} WHERE id = ?`, [result.insertId]);
+            res.statusCode = 201;
+            res.end(JSON.stringify({ item: newRows[0] }));
+          } else if (req.method === "PUT" && id) {
+            const body = await new Promise<any>((resolve) => { let d = ""; req.on("data", (c: any) => d += c); req.on("end", () => resolve(JSON.parse(d || "{}"))); });
+            const { name, description, address } = body;
+            const extraField = type === "locations" ? ", address=?" : ", description=?";
+            const extraVal = type === "locations" ? address || "" : description || "";
+            await db.execute(`UPDATE ${table} SET name=?${extraField} WHERE id=?`, [name, extraVal, id]);
+            const [rows3]: any = await db.execute(`SELECT * FROM ${table} WHERE id = ?`, [id]);
+            res.end(JSON.stringify({ item: rows3[0] }));
+          } else if (req.method === "DELETE" && id) {
+            await db.execute(`DELETE FROM ${table} WHERE id = ?`, [id]);
+            res.end(JSON.stringify({ success: true }));
+          } else { next(); }
+        } finally { await db.end(); }
+      });
+    },
+  };
+}
+
+function vitePluginDocumentsApi(): Plugin {
+  return {
+    name: "vite-plugin-documents-api",
+    configureServer(server) {
+      server.middlewares.use(async (req, res, next) => {
+        if (!req.url?.startsWith("/api/documents")) return next();
+        const { createPool } = await import("mysql2/promise");
+        const db = createPool(process.env.DATABASE_URL!);
+        const jwt = (await import("jsonwebtoken")).default;
+        const getUser = async () => {
+          const cookie = req.headers.cookie || "";
+          const match = cookie.match(/tp_auth=([^;]+)/);
+          if (!match) return null;
+          try { return jwt.verify(match[1], process.env.JWT_SECRET!) as { id: number; name: string; role: string }; } catch { return null; }
+        };
+        const user = await getUser();
+        if (!user) { res.statusCode = 401; res.end(JSON.stringify({ error: "Unauthorized" })); await db.end(); return; }
+        const url = new URL(req.url!, `http://localhost`);
+        const pathParts = url.pathname.split("/").filter(Boolean);
+        const docId = pathParts[2] ? parseInt(pathParts[2]) : null;
+        const isDownload = pathParts[3] === "download";
+        let body: Record<string, unknown> = {};
+        if (req.method !== "GET" && req.method !== "DELETE") {
+          body = await new Promise(resolve => {
+            let d = ""; req.on("data", c => d += c); req.on("end", () => { try { resolve(JSON.parse(d)); } catch { resolve({}); } });
+          });
+        }
+        res.setHeader("Content-Type", "application/json");
+        try {
+          if (req.method === "GET" && !docId) {
+            const cat = url.searchParams.get("category") || "";
+            let q = "SELECT id, title, category, description, file_name, file_size, file_type, uploaded_by, uploader_name, created_at FROM tp_documents";
+            const params: unknown[] = [];
+            if (cat) { q += " WHERE category = ?"; params.push(cat); }
+            q += " ORDER BY created_at DESC";
+            const [rows]: any = await db.execute(q, params);
+            res.end(JSON.stringify({ documents: rows }));
+          } else if (req.method === "GET" && docId && isDownload) {
+            const [rows]: any = await db.execute("SELECT * FROM tp_documents WHERE id = ?", [docId]);
+            if (!rows.length) { res.statusCode = 404; res.end(JSON.stringify({ error: "Not found" })); return; }
+            const doc = rows[0];
+            const fileData = doc.file_data as string;
+            const base64 = fileData.includes(",") ? fileData.split(",")[1] : fileData;
+            const buffer = Buffer.from(base64, "base64");
+            res.setHeader("Content-Type", doc.file_type || "application/octet-stream");
+            res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(doc.file_name)}"`)
+            res.end(buffer);
+          } else if (req.method === "POST") {
+            const { title, category, description, file_name, file_size, file_type, file_data } = body;
+            if (!title || !file_name || !file_data) { res.statusCode = 400; res.end(JSON.stringify({ error: "Missing fields" })); return; }
+            const now = Date.now();
+            const [r]: any = await db.execute("INSERT INTO tp_documents (title, category, description, file_name, file_size, file_type, file_data, uploaded_by, uploader_name, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+              [title, category || "일반", description || "", file_name, file_size || 0, file_type || "application/octet-stream", file_data, user.id, user.name, now, now]);
+            res.statusCode = 201; res.end(JSON.stringify({ id: r.insertId, message: "업로드 완료" }));
+          } else if (req.method === "DELETE" && docId) {
+            const [rows]: any = await db.execute("SELECT uploaded_by FROM tp_documents WHERE id = ?", [docId]);
+            if (!rows.length) { res.statusCode = 404; res.end(JSON.stringify({ error: "Not found" })); return; }
+            if (user.role !== "admin" && rows[0].uploaded_by !== user.id) { res.statusCode = 403; res.end(JSON.stringify({ error: "Forbidden" })); return; }
+            await db.execute("DELETE FROM tp_documents WHERE id = ?", [docId]);
+            res.end(JSON.stringify({ success: true }));
+          } else { next(); }
+        } finally { await db.end(); }
+      });
+    },
+  };
+}
 
 export default defineConfig({
   plugins,

@@ -570,7 +570,7 @@ async function startServer() {
 
   // 직원 추가
   app.post("/api/employees", async (req, res) => {
-    const user = (req as any).user;
+    const user = getUser(req);
     if (!user || user.role !== "admin") return res.status(403).json({ error: "관리자만 직원을 추가할 수 있습니다" });
     const db = getPool();
     if (!db) return res.status(500).json({ error: "DB 연결 실패" });
@@ -589,7 +589,7 @@ async function startServer() {
 
   // 직원 수정
   app.put("/api/employees/:id", async (req, res) => {
-    const user = (req as any).user;
+    const user = getUser(req);
     if (!user || user.role !== "admin") return res.status(403).json({ error: "관리자만 직원 정보를 수정할 수 있습니다" });
     const db = getPool();
     if (!db) return res.status(500).json({ error: "DB 연결 실패" });
@@ -608,7 +608,7 @@ async function startServer() {
 
   // 직원 삭제
   app.delete("/api/employees/:id", async (req, res) => {
-    const user = (req as any).user;
+    const user = getUser(req);
     if (!user || user.role !== "admin") return res.status(403).json({ error: "관리자만 직원을 삭제할 수 있습니다" });
     const db = getPool();
     if (!db) return res.status(500).json({ error: "DB 연결 실패" });
@@ -618,7 +618,7 @@ async function startServer() {
 
   // 직원 일괄 등록 (엑셀 업로드용)
   app.post("/api/employees/bulk", async (req, res) => {
-    const user = (req as any).user;
+    const user = getUser(req);
     if (!user || user.role !== "admin") return res.status(403).json({ error: "관리자만 일괄 등록할 수 있습니다" });
     const db = getPool();
     if (!db) return res.status(500).json({ error: "DB 연결 실패" });
@@ -716,6 +716,136 @@ async function startServer() {
       console.error(err);
       return res.status(500).json({ error: "상태 변경 실패" });
     }
+  });
+
+  // ─── 마스터 데이터 API (부서·직급·직책·근무지) ──────────────────────
+  const MASTER_TABLES: Record<string, string> = {
+    departments: "tp_departments",
+    grades: "tp_grades",
+    positions: "tp_positions",
+    locations: "tp_locations",
+  };
+
+  // 마스터 목록 조회
+  app.get("/api/master/:type", async (req, res) => {
+    const table = MASTER_TABLES[req.params.type];
+    if (!table) return res.status(400).json({ error: "잘못된 타입" });
+    const db = getPool();
+    if (!db) return res.status(500).json({ error: "DB 연결 실패" });
+    const [rows] = await db.execute(`SELECT * FROM ${table} ORDER BY sort_order ASC, id ASC`);
+    return res.json({ items: rows });
+  });
+
+  // 마스터 항목 추가
+  app.post("/api/master/:type", async (req, res) => {
+    const user = getUser(req);
+    if (!user || user.role !== "admin") return res.status(403).json({ error: "관리자만 가능합니다" });
+    const table = MASTER_TABLES[req.params.type];
+    if (!table) return res.status(400).json({ error: "잘못된 타입" });
+    const db = getPool();
+    if (!db) return res.status(500).json({ error: "DB 연결 실패" });
+    const { name, description, address } = req.body;
+    if (!name?.trim()) return res.status(400).json({ error: "이름은 필수입니다" });
+    const now = Date.now();
+    const [rows2] = await db.execute<mysql.RowDataPacket[]>(`SELECT MAX(sort_order) as max_order FROM ${table}`);
+    const nextOrder = ((rows2[0] as any)?.max_order ?? 0) + 1;
+    const extraField = req.params.type === "locations" ? ", address" : (req.params.type === "departments" || req.params.type === "positions" ? ", description" : ", description");
+    const extraVal = req.params.type === "locations" ? address || "" : description || "";
+    const [result] = await db.execute<mysql.ResultSetHeader>(
+      `INSERT INTO ${table} (name${extraField}, sort_order, created_at) VALUES (?, ?, ?, ?)`,
+      [name.trim(), extraVal, nextOrder, now]
+    );
+    const [newRows] = await db.execute<mysql.RowDataPacket[]>(`SELECT * FROM ${table} WHERE id = ?`, [result.insertId]);
+    return res.status(201).json({ item: newRows[0] });
+  });
+
+  // 마스터 항목 수정
+  app.put("/api/master/:type/:id", async (req, res) => {
+    const user = getUser(req);
+    if (!user || user.role !== "admin") return res.status(403).json({ error: "관리자만 가능합니다" });
+    const table = MASTER_TABLES[req.params.type];
+    if (!table) return res.status(400).json({ error: "잘못된 타입" });
+    const db = getPool();
+    if (!db) return res.status(500).json({ error: "DB 연결 실패" });
+    const { name, description, address } = req.body;
+    const extraField = req.params.type === "locations" ? ", address=?" : ", description=?";
+    const extraVal = req.params.type === "locations" ? address || "" : description || "";
+    await db.execute(`UPDATE ${table} SET name=?${extraField} WHERE id=?`, [name, extraVal, req.params.id]);
+    const [rows3] = await db.execute<mysql.RowDataPacket[]>(`SELECT * FROM ${table} WHERE id = ?`, [req.params.id]);
+    return res.json({ item: rows3[0] });
+  });
+
+  // 마스터 항목 삭제
+  app.delete("/api/master/:type/:id", async (req, res) => {
+    const user = getUser(req);
+    if (!user || user.role !== "admin") return res.status(403).json({ error: "관리자만 가능합니다" });
+    const table = MASTER_TABLES[req.params.type];
+    if (!table) return res.status(400).json({ error: "잘못된 타입" });
+    const db = getPool();
+    if (!db) return res.status(500).json({ error: "DB 연결 실패" });
+    await db.execute(`DELETE FROM ${table} WHERE id = ?`, [req.params.id]);
+    return res.json({ success: true });
+  });
+
+
+  // ─── 문서 관리 API ─────────────────────────────────────────────────────────
+
+  // 문서 목록 조회
+  app.get("/api/documents", async (req, res) => {
+    const db = getPool()!;
+    const user = await getUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const category = (req.query.category as string) || "";
+    let query = "SELECT id, title, category, description, file_name, file_size, file_type, uploaded_by, uploader_name, created_at FROM tp_documents";
+    if (category) {
+      const [rows] = await (db as any).execute(query + " WHERE category = ? ORDER BY created_at DESC", [category]) as [Record<string, unknown>[], unknown];
+      return res.json({ documents: rows });
+    }
+    const [rows] = await (db as any).execute(query + " ORDER BY created_at DESC") as [Record<string, unknown>[], unknown];
+    return res.json({ documents: rows });
+  });
+
+  // 문서 업로드
+  app.post("/api/documents", async (req, res) => {
+    const db = getPool()!;
+    const user = await getUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const { title, category, description, file_name, file_size, file_type, file_data } = req.body;
+    if (!title || !file_name || !file_data) return res.status(400).json({ error: "Missing required fields" });
+    const now = Date.now();
+    const [result] = await (db as any).execute(
+      "INSERT INTO tp_documents (title, category, description, file_name, file_size, file_type, file_data, uploaded_by, uploader_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [title, category || "일반", description || "", file_name, file_size || 0, file_type || "application/octet-stream", file_data, user.id, user.name, now, now]
+    ) as [{ insertId: number }, unknown];
+    return res.status(201).json({ id: result.insertId, message: "업로드 완료" });
+  });
+
+  // 문서 다운로드
+  app.get("/api/documents/:id/download", async (req, res) => {
+    const db = getPool()!;
+    const user = await getUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const [rows] = await (db as any).execute("SELECT * FROM tp_documents WHERE id = ?", [req.params.id]) as [Record<string, unknown>[], unknown];
+    if (!rows.length) return res.status(404).json({ error: "Not found" });
+    const doc = rows[0];
+    const fileData = doc.file_data as string;
+    const base64 = fileData.includes(",") ? fileData.split(",")[1] : fileData;
+    const buffer = Buffer.from(base64, "base64");
+    res.setHeader("Content-Type", (doc.file_type as string) || "application/octet-stream");
+    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(doc.file_name as string)}"`);
+    return res.send(buffer);
+  });
+
+  // 문서 삭제
+  app.delete("/api/documents/:id", async (req, res) => {
+    const db = getPool()!;
+    const user = await getUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const [rows] = await (db as any).execute("SELECT uploaded_by FROM tp_documents WHERE id = ?", [req.params.id]) as [Record<string, unknown>[], unknown];
+    if (!rows.length) return res.status(404).json({ error: "Not found" });
+    if (user.role !== "admin" && rows[0].uploaded_by !== user.id) return res.status(403).json({ error: "Forbidden" });
+    await (db as any).execute("DELETE FROM tp_documents WHERE id = ?", [req.params.id]);
+    return res.json({ success: true });
   });
 
   // ─── 정적 파일 서빙 ─────────────────────────────────────────

@@ -39,6 +39,10 @@ import {
   RefreshCw,
   Pencil,
   X,
+  MapPin,
+  Briefcase,
+  Tag,
+  Building,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -67,6 +71,7 @@ const TABS = [
   { id: "accounts",   label: "계정 관리",       icon: Users },
   { id: "notification", label: "알림 설정",    icon: Bell },
   { id: "company",    label: "회사 정보",       icon: Building2 },
+  { id: "master",     label: "조직 마스터",     icon: Briefcase },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -1405,6 +1410,178 @@ function ResetPasswordModal({
   );
 }
 
+
+// ─── 조직 마스터 탭 ────────────────────────────────────────────────────────────
+
+type MasterItem = { id: number; name: string; description?: string; address?: string; sort_order: number };
+type MasterType = { key: string; label: string; icon: React.ElementType; secondaryLabel: string };
+
+const MASTER_TYPES: MasterType[] = [
+  { key: "departments", label: "부서", icon: Building, secondaryLabel: "설명" },
+  { key: "grades",      label: "직급", icon: Tag,      secondaryLabel: "설명" },
+  { key: "positions",   label: "직책", icon: Briefcase, secondaryLabel: "설명" },
+  { key: "locations",   label: "근무지", icon: MapPin,   secondaryLabel: "주소" },
+];
+
+function MasterSection({ type }: { type: MasterType }) {
+  const [items, setItems] = useState<MasterItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [newName, setNewName] = useState("");
+  const [newSecondary, setNewSecondary] = useState("");
+  const [editId, setEditId] = useState<number | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editSecondary, setEditSecondary] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/master/${type.key}`, { credentials: "include" });
+      const data = await res.json();
+      setItems(data.items || []);
+    } catch { toast.error("데이터 로드 실패"); }
+    finally { setLoading(false); }
+  }, [type.key]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleAdd = async () => {
+    if (!newName.trim()) { toast.error("이름을 입력해주세요"); return; }
+    setSaving(true);
+    try {
+      const body: Record<string, string> = { name: newName.trim() };
+      if (type.key === "locations") body.address = newSecondary;
+      else body.description = newSecondary;
+      const res = await fetch(`/api/master/${type.key}`, {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setNewName(""); setNewSecondary("");
+      await load();
+      toast.success(`${type.label} 항목이 추가되었습니다`);
+    } catch { toast.error("추가 실패"); }
+    finally { setSaving(false); }
+  };
+
+  const handleEdit = async (id: number) => {
+    setSaving(true);
+    try {
+      const body: Record<string, string> = { name: editName };
+      if (type.key === "locations") body.address = editSecondary;
+      else body.description = editSecondary;
+      const res = await fetch(`/api/master/${type.key}/${id}`, {
+        method: "PUT", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error();
+      setEditId(null);
+      await load();
+      toast.success("수정되었습니다");
+    } catch { toast.error("수정 실패"); }
+    finally { setSaving(false); }
+  };
+
+  const handleDelete = async (id: number, name: string) => {
+    if (!confirm(`"${name}" 항목을 삭제하시겠습니까?`)) return;
+    try {
+      await fetch(`/api/master/${type.key}/${id}`, { method: "DELETE", credentials: "include" });
+      await load();
+      toast.success("삭제되었습니다");
+    } catch { toast.error("삭제 실패"); }
+  };
+
+  const Icon = type.icon;
+
+  return (
+    <div className="bg-card rounded-2xl border border-border p-5 space-y-4">
+      <div className="flex items-center gap-2">
+        <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "oklch(0.92 0.04 180)" }}>
+          <Icon size={16} style={{ color: "var(--teal)" }} />
+        </div>
+        <div>
+          <h3 className="text-sm font-semibold text-foreground">{type.label} 관리</h3>
+          <p className="text-xs text-muted-foreground">{items.length}개 항목</p>
+        </div>
+      </div>
+      <div className="flex gap-2">
+        <input value={newName} onChange={(e) => setNewName(e.target.value)}
+          placeholder={`새 ${type.label} 이름`}
+          className="flex-1 min-w-0 h-8 px-3 text-xs rounded-xl border border-border bg-background focus:outline-none focus:ring-1 focus:ring-teal-400"
+          onKeyDown={(e) => e.key === "Enter" && handleAdd()} />
+        <input value={newSecondary} onChange={(e) => setNewSecondary(e.target.value)}
+          placeholder={type.secondaryLabel}
+          className="w-36 h-8 px-3 text-xs rounded-xl border border-border bg-background focus:outline-none focus:ring-1 focus:ring-teal-400"
+          onKeyDown={(e) => e.key === "Enter" && handleAdd()} />
+        <Button size="sm" className="h-8 rounded-xl text-white gap-1" style={{ background: "var(--teal)" }}
+          onClick={handleAdd} disabled={saving || !newName.trim()}>
+          <Plus size={13} /> 추가
+        </Button>
+      </div>
+      {loading ? (
+        <div className="flex items-center justify-center py-6"><RefreshCw size={16} className="animate-spin text-muted-foreground" /></div>
+      ) : items.length === 0 ? (
+        <p className="text-xs text-muted-foreground text-center py-4">등록된 {type.label}이 없습니다</p>
+      ) : (
+        <div className="space-y-1.5">
+          {items.map((item) => (
+            <div key={item.id} className="flex items-center gap-2 px-3 py-2 rounded-xl bg-muted/40 hover:bg-muted/70 transition-colors">
+              {editId === item.id ? (
+                <>
+                  <input value={editName} onChange={(e) => setEditName(e.target.value)}
+                    className="flex-1 min-w-0 h-7 px-2 text-xs rounded-lg border border-border bg-background focus:outline-none" autoFocus />
+                  <input value={editSecondary} onChange={(e) => setEditSecondary(e.target.value)}
+                    placeholder={type.secondaryLabel}
+                    className="w-28 h-7 px-2 text-xs rounded-lg border border-border bg-background focus:outline-none" />
+                  <Button size="sm" className="h-6 px-2 text-xs rounded-lg text-white" style={{ background: "var(--teal)" }}
+                    onClick={() => handleEdit(item.id)} disabled={saving}>
+                    {saving ? <RefreshCw size={11} className="animate-spin" /> : "저장"}
+                  </Button>
+                  <Button size="sm" variant="ghost" className="h-6 px-2 text-xs rounded-lg" onClick={() => setEditId(null)}>취소</Button>
+                </>
+              ) : (
+                <>
+                  <span className="flex-1 text-xs font-medium text-foreground">{item.name}</span>
+                  {(item.description || item.address) && (
+                    <span className="text-xs text-muted-foreground truncate max-w-[120px]">{item.description || item.address}</span>
+                  )}
+                  <button onClick={() => { setEditId(item.id); setEditName(item.name); setEditSecondary(item.description || item.address || ""); }}
+                    className="p-1 rounded-lg hover:bg-background transition-colors text-muted-foreground hover:text-foreground">
+                    <Pencil size={12} />
+                  </button>
+                  <button onClick={() => handleDelete(item.id, item.name)}
+                    className="p-1 rounded-lg hover:bg-red-50 transition-colors text-muted-foreground hover:text-red-500">
+                    <Trash2 size={12} />
+                  </button>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MasterDataTab() {
+  return (
+    <div className="flex-1 overflow-y-auto p-6">
+      <div className="max-w-4xl mx-auto space-y-4">
+        <div>
+          <h2 className="text-base font-semibold text-foreground">조직 마스터 데이터</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">부서·직급·직책·근무지를 관리합니다. 직원 등록 시 선택지로 사용됩니다.</p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {MASTER_TYPES.map((t) => <MasterSection key={t.key} type={t} />)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
@@ -1448,6 +1625,7 @@ export default function SettingsPage() {
           {activeTab === "accounts"     && <AccountsTab />}
           {activeTab === "notification" && <NotificationTab />}
           {activeTab === "company"      && <CompanyTab />}
+          {activeTab === "master"       && <MasterDataTab />}
         </div>
       </div>
     </div>

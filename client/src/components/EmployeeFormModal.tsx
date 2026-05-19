@@ -106,7 +106,7 @@ const SKILL_SUGGESTIONS: Record<string, string[]> = {
 const STEPS = [
   { label: "기본 정보", icon: User },
   { label: "연락처 · 인사", icon: Mail },
-  { label: "스킬 · 추가", icon: Star },
+  { label: "추가 정보", icon: Star },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -120,7 +120,8 @@ const EMPTY_FORM: EmployeeFormData = {
 };
 
 function getAvatarText(name: string) {
-  return name.length >= 2 ? name.slice(0, 2) : name || "??";
+  // 전체 이름 표시 (2자 이상이면 성제외 이름, 1자면 전체)
+  return name || "??";
 }
 
 function FieldError({ msg }: { msg?: string }) {
@@ -500,101 +501,6 @@ function Step3({
 
   return (
     <div className="space-y-4">
-      {/* Skills */}
-      <div>
-        <label className="block text-sm font-medium text-foreground mb-1.5">
-          <span className="flex items-center gap-1.5"><Star size={13} />보유 스킬</span>
-        </label>
-
-        {/* Tag input */}
-        <div className="flex gap-2 mb-2">
-          <input
-            type="text"
-            placeholder="스킬 직접 입력 후 Enter"
-            value={skillInput}
-            onChange={(e) => setSkillInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") { e.preventDefault(); addSkill(skillInput); }
-            }}
-            className="flex-1 px-3 py-2 text-sm border border-border rounded-xl outline-none focus:ring-2 focus:ring-[var(--teal)]/30 placeholder:text-muted-foreground/50"
-          />
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="rounded-xl px-3 shrink-0"
-            onClick={() => addSkill(skillInput)}
-          >
-            <Plus size={14} />
-          </Button>
-        </div>
-
-        {/* Added tags */}
-        {form.skills.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mb-3 p-3 bg-[var(--teal-light)] rounded-xl min-h-10">
-            {form.skills.map((s) => (
-              <span
-                key={s}
-                className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg font-medium text-[var(--teal-dark)]"
-                style={{ background: "oklch(0.65 0.14 185 / 0.15)" }}
-              >
-                {s}
-                <button
-                  type="button"
-                  onClick={() => removeSkill(s)}
-                  className="text-[var(--teal-dark)]/60 hover:text-[var(--coral)] transition-colors"
-                >
-                  <X size={11} />
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
-
-        {/* Suggestions */}
-        {suggestions.length > 0 && (
-          <div>
-            <div className="text-[11px] text-muted-foreground mb-1.5">
-              {form.dept} 추천 스킬
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {suggestions.slice(0, 8).map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => addSkill(s)}
-                  className="text-[11px] px-2.5 py-1 rounded-lg border border-dashed border-border text-muted-foreground hover:border-[var(--teal)] hover:text-[var(--teal)] hover:bg-[var(--teal-light)] transition-all"
-                >
-                  + {s}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* 참여 점수 */}
-      <div>
-        <label className="block text-sm font-medium text-foreground mb-1.5">
-          <span className="flex items-center justify-between">
-            <span className="flex items-center gap-1.5"><Star size={13} />초기 참여 점수</span>
-            <span className="mono-num font-bold text-[var(--teal)]">{form.engagementScore}점</span>
-          </span>
-        </label>
-        <input
-          type="range"
-          min={0}
-          max={100}
-          value={form.engagementScore}
-          onChange={(e) => onChange("engagementScore", e.target.value)}
-          className="w-full accent-[var(--teal)] h-2"
-          style={{ accentColor: "var(--teal)" }}
-        />
-        <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
-          <span>0</span><span>25</span><span>50</span><span>75</span><span>100</span>
-        </div>
-      </div>
-
       {/* 메모 */}
       <div>
         <label className="block text-sm font-medium text-foreground mb-1.5">메모 (선택)</label>

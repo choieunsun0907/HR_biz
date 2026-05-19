@@ -11,7 +11,7 @@
  * - 줌 인/아웃, 트리/카드 뷰 전환
  */
 
-import { useState, useMemo, useRef, useCallback } from "react";
+import { useState, useMemo, useRef, useCallback, useEffect } from "react";
 import {
   Search, ChevronDown, ChevronRight, X, ZoomIn, ZoomOut,
   Maximize2, Users, Phone, Mail, MapPin, Calendar, Award,
@@ -629,6 +629,51 @@ function CardView({ employees, selectedId, highlightIds, onSelect }: {
 export default function OrgChartPage() {
   const [employees, setEmployees] = useState<OrgEmployee[]>(INITIAL_EMPLOYEES);
   const [query, setQuery]         = useState("");
+
+  // DB에서 직원 데이터 로드 (INITIAL_EMPLOYEES를 fallback으로 사용)
+  useEffect(() => {
+    fetch("/api/employees", { credentials: "include" })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!data?.employees?.length) return;
+        const DEPT_COLORS: Record<string, string> = {
+          "개발팀": "#7C3AED", "인사팀": "#0891B2", "마케팅": "#DB2777",
+          "영업팀": "#D97706", "디자인": "#059669", "재무팀": "#DC2626",
+          "경영진": "#0D9488",
+        };
+        const mapped: OrgEmployee[] = data.employees.map((e: Record<string, unknown>) => ({
+          id: e.id as number,
+          name: e.name as string,
+          title: (e.title as string) || (e.position as string) || "직원",
+          level: (e.grade as string) || "사원",
+          dept: (e.department as string) || "미배정",
+          team: (e.department as string) || "미배정",
+          email: (e.email as string) || "",
+          phone: (e.phone as string) || "",
+          location: (e.location as string) || "서울 본사",
+          joinDate: (e.join_date as string) || "",
+          avatar: DEPT_COLORS[(e.department as string) || ""] || "#6B7280",
+          skills: [],
+          reportsTo: null,
+          isHead: false,
+          engagementScore: 80,
+        }));
+        // 부서별 첫 번째 직원을 부서장으로 설정
+        const deptHeads: Record<string, number> = {};
+        mapped.forEach(e => {
+          if (!deptHeads[e.dept]) {
+            deptHeads[e.dept] = e.id;
+            e.isHead = true;
+          }
+        });
+        // reportsTo 설정 (부서장이 아닌 직원은 해당 부서장에게 보고)
+        mapped.forEach(e => {
+          if (!e.isHead) e.reportsTo = deptHeads[e.dept] ?? null;
+        });
+        setEmployees(mapped);
+      })
+      .catch(() => {}); // 실패 시 INITIAL_EMPLOYEES 유지
+  }, []);
   const [selectedEmp, setSelectedEmp] = useState<OrgEmployee | null>(null);
   const [collapsedDepts, setCollapsedDepts] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode]   = useState<"tree" | "card">("tree");

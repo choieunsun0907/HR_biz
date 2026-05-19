@@ -14,6 +14,7 @@ import ReportsPage from "./pages/ReportsPage";
 import SettingsPage from "./pages/SettingsPage";
 import OrgChartPage from "./pages/OrgChartPage";
 import LoginPage from "./pages/LoginPage";
+import DocumentsPage from "./pages/DocumentsPage";
 
 // 인증 보호 래퍼
 function ProtectedApp() {
@@ -66,6 +67,7 @@ function ProtectedApp() {
         <Route path="/org-chart" component={OrgChartPage} />
         <Route path="/reports" component={ReportsPage} />
         <Route path="/settings" component={SettingsPage} />
+        <Route path="/documents" component={DocumentsPage} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />
       </Switch>
