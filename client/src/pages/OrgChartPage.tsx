@@ -788,7 +788,56 @@ export default function OrgChartPage() {
   // ─── PDF 내보내기 ─────────────────────────────────────────────────────────
   const handleDownloadPDF = useCallback(async () => {
     if (!treeRef.current) {
-      toast.error("트리 뷰에서만 PDF 내보내기가 가능합니다");
+      // 카드 뷰 기반 PDF 생성
+      setExporting("pdf");
+      try {
+        const jsPDF = (await import("jspdf")).default;
+        const today = new Date().toLocaleDateString("ko-KR").replace(/\. /g, "-").replace(".", "");
+        const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+        const pageW = doc.internal.pageSize.getWidth();
+        const pageH = doc.internal.pageSize.getHeight();
+        doc.setFillColor(13, 148, 136);
+        doc.rect(0, 0, pageW, 14, "F");
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(12);
+        doc.setFont("helvetica", "bold");
+        doc.text("싸카스포츠 조직도", 12, 9);
+        doc.setFontSize(8);
+        doc.setFont("helvetica", "normal");
+        doc.text(`생성일: ${today}  |  전체 ${employees.length}명`, pageW - 12, 9, { align: "right" });
+        const headers = ["이름", "부서", "직책", "직급", "이메일", "연락처"];
+        const colWidths = [28, 30, 40, 20, 60, 30];
+        let y = 20;
+        const rowH = 7;
+        doc.setFillColor(240, 253, 250);
+        doc.rect(10, y, pageW - 20, rowH, "F");
+        doc.setTextColor(13, 148, 136);
+        doc.setFontSize(8);
+        doc.setFont("helvetica", "bold");
+        let x = 10;
+        headers.forEach((h, i) => { doc.text(h, x + 1, y + 5); x += colWidths[i]; });
+        y += rowH;
+        doc.setFont("helvetica", "normal");
+        employees.forEach((e, idx) => {
+          if (y + rowH > pageH - 10) { doc.addPage(); y = 14; }
+          if (idx % 2 === 0) { doc.setFillColor(250, 250, 252); doc.rect(10, y, pageW - 20, rowH, "F"); }
+          doc.setTextColor(30, 30, 30);
+          const cells = [e.name, e.dept, e.title, e.level, e.email, e.phone];
+          x = 10;
+          cells.forEach((cell, i) => {
+            const txt = doc.splitTextToSize(String(cell ?? ""), colWidths[i] - 2)[0] ?? "";
+            doc.text(txt, x + 1, y + 5);
+            x += colWidths[i];
+          });
+          y += rowH;
+        });
+        doc.save(`조직도_${today}.pdf`);
+        toast.success("PDF 파일이 다운로드되었습니다");
+      } catch {
+        toast.error("PDF 내보내기에 실패했습니다");
+      } finally {
+        setExporting(null);
+      }
       return;
     }
     setExporting("pdf");
@@ -1009,12 +1058,12 @@ export default function OrgChartPage() {
             </button>
             <button
               onClick={handleDownloadPDF}
-              disabled={exporting !== null || viewMode !== "tree"}
-              title={viewMode !== "tree" ? "트리 뷰에서만 PDF 내보내기 가능" : "PDF로 내보내기"}
+              disabled={exporting !== null}
+              title="PDF로 내보내기"
               className={cn(
                 "flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all border",
                 "bg-white border-border text-muted-foreground hover:border-rose-400 hover:text-rose-600",
-                (exporting === "pdf" || viewMode !== "tree") && "opacity-60 cursor-not-allowed"
+                exporting === "pdf" && "opacity-60 cursor-not-allowed"
               )}>
               <FileText size={13} />
               {exporting === "pdf" ? "생성 중..." : "PDF"}

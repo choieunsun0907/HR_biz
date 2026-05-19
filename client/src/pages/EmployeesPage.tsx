@@ -10,7 +10,7 @@
  * - 기존 직원 정보 수정 모달
  */
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import {
   Search,
   LayoutGrid,
@@ -27,6 +27,9 @@ import {
   MoreHorizontal,
   UserPlus,
   Download,
+  Upload,
+  FileSpreadsheet,
+  FileText,
   ChevronRight,
   Briefcase,
   Building2,
@@ -657,6 +660,134 @@ export default function EmployeesPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Partial<EmployeeFormData> | null>(null);
 
+  const xlsxUploadRef = useRef<HTMLInputElement>(null);
+
+  // ─── 엑셀 내보내기 ──────────────────────────────────────────────
+  const handleExportExcel = async () => {
+    try {
+      const XLSX = await import("xlsx");
+      const rows = filtered.map((e) => ({
+        "이름": e.name,
+        "부서": e.dept,
+        "직책": e.role,
+        "직급": e.grade,
+        "재직상태": e.status,
+        "이메일": e.email,
+        "연락처": e.phone,
+        "근무지": e.location,
+        "입사일": e.joinDate,
+        "생년월일": e.birthDate,
+        "담당매니저": e.manager,
+        "잔여연차": e.leaveBalance,
+        "사용연차": e.leaveUsed,
+        "근무율(%)": e.attendanceRate,
+        "스킬": e.skills.join(", "),
+        "메모": e.memo || "",
+      }));
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "직원목록");
+      const date = new Date().toISOString().slice(0, 10);
+      XLSX.writeFile(wb, `직원목록_${date}.xlsx`);
+      toast.success("엑셀 파일이 다운로드되었습니다");
+    } catch {
+      toast.error("내보내기 실패");
+    }
+  };
+
+  // ─── PDF 내보내기 ───────────────────────────────────────────────
+  const handleExportPDF = async () => {
+    try {
+      const [{ default: jsPDF }] = await Promise.all([import("jspdf")]);
+      const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+      const pageW = doc.internal.pageSize.getWidth();
+      const pageH = doc.internal.pageSize.getHeight();
+      const date = new Date().toLocaleDateString("ko-KR");
+      doc.setFillColor(16, 185, 129);
+      doc.rect(0, 0, pageW, 18, "F");
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(14);
+      doc.setFont("helvetica", "bold");
+      doc.text("직원 목록", 14, 12);
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "normal");
+      doc.text(`출력일: ${date}  /  전체 ${filtered.length}명`, pageW - 14, 12, { align: "right" });
+      const headers = ["이름", "부서", "직책", "직급", "재직상태", "이메일", "연락처", "입사일", "잔여연차"];
+      const colWidths = [22, 24, 36, 16, 18, 52, 28, 22, 18];
+      let y = 24;
+      const rowH = 7;
+      doc.setFillColor(240, 253, 250);
+      doc.rect(10, y, pageW - 20, rowH, "F");
+      doc.setTextColor(16, 185, 129);
+      doc.setFontSize(8);
+      doc.setFont("helvetica", "bold");
+      let x = 10;
+      headers.forEach((h, i) => { doc.text(h, x + 1, y + 5); x += colWidths[i]; });
+      y += rowH;
+      doc.setFont("helvetica", "normal");
+      filtered.forEach((e, idx) => {
+        if (y + rowH > pageH - 10) { doc.addPage(); y = 14; }
+        if (idx % 2 === 0) { doc.setFillColor(250, 250, 252); doc.rect(10, y, pageW - 20, rowH, "F"); }
+        doc.setTextColor(30, 30, 30);
+        const cells = [e.name, e.dept, e.role, e.grade, e.status, e.email, e.phone, e.joinDate, String(e.leaveBalance)];
+        x = 10;
+        cells.forEach((cell, i) => {
+          const txt = doc.splitTextToSize(cell, colWidths[i] - 2)[0] ?? "";
+          doc.text(txt, x + 1, y + 5);
+          x += colWidths[i];
+        });
+        y += rowH;
+      });
+      doc.save(`직원목록_${date.replace(/\./g, "")}.pdf`);
+      toast.success("PDF 파일이 다운로드되었습니다");
+    } catch {
+      toast.error("PDF 내보내기 실패");
+    }
+  };
+
+  // ─── 엑셀 업로드 ───────────────────────────────────────────────
+  const handleXlsxUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    try {
+      const XLSX = await import("xlsx");
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: "array" });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws);
+      if (rows.length === 0) { toast.error("데이터가 없습니다"); return; }
+      const newEmps: Employee[] = rows.map((row, idx) => ({
+        id: Date.now() + idx,
+        name: String(row["이름"] ?? row["name"] ?? "").trim(),
+        avatar: String(row["이름"] ?? "").slice(0, 2),
+        dept: String(row["부서"] ?? row["dept"] ?? "").trim(),
+        role: String(row["직책"] ?? row["role"] ?? "").trim(),
+        grade: String(row["직급"] ?? row["grade"] ?? "일반").trim(),
+        status: (String(row["재직상태"] ?? "재직") as Employee["status"]),
+        email: String(row["이메일"] ?? row["email"] ?? "").trim(),
+        phone: String(row["연락처"] ?? row["phone"] ?? "").trim(),
+        location: String(row["근무지"] ?? row["location"] ?? "").trim(),
+        joinDate: String(row["입사일"] ?? row["joinDate"] ?? "").trim(),
+        birthDate: String(row["생년월일"] ?? row["birthDate"] ?? "").trim(),
+        manager: String(row["담당매니저"] ?? row["manager"] ?? "").trim(),
+        engagementScore: Number(row["참여점수"] ?? 80),
+        leaveBalance: Number(row["잔여연차"] ?? 15),
+        leaveUsed: Number(row["사용연차"] ?? 0),
+        attendanceRate: Number(row["근무율(%)"] ?? 100),
+        skills: String(row["스킬"] ?? "").split(",").map((s: string) => s.trim()).filter(Boolean),
+        recentActivity: [{ date: new Date().toLocaleDateString("ko-KR", { month: "2-digit", day: "2-digit" }).replace(". ", ".").replace(".", ""), content: "엑셀에서 등록되었습니다" }],
+        color: `oklch(0.65 0.14 ${(idx * 37) % 360})`,
+        memo: String(row["메모"] ?? ""),
+      })).filter((e) => e.name);
+      if (newEmps.length === 0) { toast.error("유효한 직원 데이터가 없습니다 (이름 필드 필수)"); return; }
+      setEmployees((prev) => [...newEmps, ...prev]);
+      toast.success(`${newEmps.length}명의 직원이 업로드되었습니다`);
+    } catch {
+      toast.error("엑셀 파일 읽기 실패");
+    }
+  };
+
   // Bulk leave state
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [bulkLeaveOpen, setBulkLeaveOpen] = useState(false);
@@ -884,24 +1015,45 @@ export default function EmployeesPage() {
                   </Button>
                 </>
               )}
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1.5 rounded-xl text-xs"
-                onClick={() => toast.info("직원 목록 엑셀 다운로드")}
-              >
-                <Download size={13} />
-                내보내기
-              </Button>
-              <Button
-                size="sm"
-                className="gap-1.5 rounded-xl text-xs text-white"
-                style={{ background: "var(--teal)" }}
-                onClick={handleAddEmployee}
-              >
-                <UserPlus size={13} />
-                직원 추가
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="gap-1.5 rounded-xl text-xs">
+                    <Download size={13} />
+                    내보내기
+                    <ChevronDown size={11} />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-40">
+                  <DropdownMenuItem onClick={handleExportExcel} className="gap-2 text-xs cursor-pointer">
+                    <FileSpreadsheet size={13} className="text-green-600" />
+                    엑셀 다운로드
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleExportPDF} className="gap-2 text-xs cursor-pointer">
+                    <FileText size={13} className="text-red-500" />
+                    PDF 다운로드
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <input ref={xlsxUploadRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleXlsxUpload} />
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button size="sm" className="gap-1.5 rounded-xl text-xs text-white" style={{ background: "var(--teal)" }}>
+                    <UserPlus size={13} />
+                    직원 추가
+                    <ChevronDown size={11} />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-44">
+                  <DropdownMenuItem onClick={handleAddEmployee} className="gap-2 text-xs cursor-pointer">
+                    <UserPlus size={13} />
+                    직접 등록
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => xlsxUploadRef.current?.click()} className="gap-2 text-xs cursor-pointer">
+                    <Upload size={13} className="text-green-600" />
+                    엑셀 업로드
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
 

@@ -629,6 +629,9 @@ function BoardPanel() {
   const [form, setForm] = useState({ title: "", content: "", category: "개발" });
   const [formError, setFormError] = useState({ title: false, content: false });
   const [submitting, setSubmitting] = useState(false);
+  const [editPost, setEditPost] = useState<BoardPost | null>(null);
+  const [editForm, setEditForm] = useState({ title: "", content: "", category: "개발" });
+  const [editSubmitting, setEditSubmitting] = useState(false);
 
   const loadPosts = useCallback(async () => {
     setLoading(true);
@@ -673,6 +676,31 @@ function BoardPanel() {
       toast.error(e.message || "등록 실패");
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleEditOpen = (post: BoardPost) => {
+    setEditPost(post);
+    setEditForm({ title: post.title, content: post.content ?? "", category: post.category ?? "개발" });
+  };
+
+  const handleEditSubmit = async () => {
+    if (!editPost) return;
+    if (!editForm.title.trim() || !editForm.content.trim()) return;
+    setEditSubmitting(true);
+    try {
+      const data = await apiFetch(`/api/community/board/${editPost.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: editForm.title.trim(), content: editForm.content.trim(), category: editForm.category }),
+      });
+      setPosts((prev) => prev.map((p) => p.id === editPost.id ? { ...p, ...data.post } : p));
+      setEditPost(null);
+      toast.success("게시글이 수정되었습니다");
+    } catch (e: any) {
+      toast.error(e.message || "수정 실패");
+    } finally {
+      setEditSubmitting(false);
     }
   };
 
@@ -751,13 +779,24 @@ function BoardPanel() {
                     </div>
                   </div>
                   {(post.author_id === user?.id || user?.role === "admin") && (
-                    <button
-                      onClick={() => handleDelete(post.id, post.author_id)}
-                      className="p-1 rounded hover:bg-red-50 text-muted-foreground hover:text-red-500 transition-colors shrink-0"
-                      title="삭제"
-                    >
-                      <Trash2 size={13} />
-                    </button>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {post.author_id === user?.id && (
+                        <button
+                          onClick={() => handleEditOpen(post)}
+                          className="p-1 rounded hover:bg-blue-50 text-muted-foreground hover:text-blue-500 transition-colors"
+                          title="수정"
+                        >
+                          <Pencil size={13} />
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleDelete(post.id, post.author_id)}
+                        className="p-1 rounded hover:bg-red-50 text-muted-foreground hover:text-red-500 transition-colors"
+                        title="삭제"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>
@@ -813,6 +852,54 @@ function BoardPanel() {
               <Button variant="outline" className="flex-1 rounded-xl text-sm" onClick={handleClose} disabled={submitting}>취소</Button>
               <Button className="flex-1 rounded-xl text-sm text-white" style={{ background: "var(--teal)" }} onClick={handleSubmit} disabled={submitting}>
                 {submitting ? <Loader2 size={14} className="animate-spin" /> : "등록하기"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+      {/* Edit Modal */}
+      <Dialog open={!!editPost} onOpenChange={(o) => !o && setEditPost(null)}>
+        <DialogContent className="max-w-lg rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold">게시글 수정</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-1">
+            <div>
+              <label className="text-xs font-semibold text-foreground mb-1.5 block">카테고리</label>
+              <div className="flex flex-wrap gap-1.5">
+                {boardCategories.filter((c) => c !== "전체").map((cat) => (
+                  <button
+                    key={cat}
+                    onClick={() => setEditForm((f) => ({ ...f, category: cat }))}
+                    className={cn("px-3 py-1.5 rounded-lg text-xs font-medium transition-all border", editForm.category === cat ? "bg-[var(--teal)] text-white border-[var(--teal)]" : "bg-muted text-muted-foreground border-transparent hover:border-[var(--teal)]/30")}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-foreground mb-1.5 block">제목 <span className="text-[var(--coral)]">*</span></label>
+              <input
+                type="text"
+                value={editForm.title}
+                onChange={(e) => setEditForm((f) => ({ ...f, title: e.target.value }))}
+                className="w-full px-3 py-2.5 text-sm rounded-xl border outline-none transition-all focus:ring-2 focus:ring-[var(--teal)]/30 focus:border-[var(--teal)] border-border bg-background"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-foreground mb-1.5 block">내용 <span className="text-[var(--coral)]">*</span></label>
+              <textarea
+                value={editForm.content}
+                onChange={(e) => setEditForm((f) => ({ ...f, content: e.target.value }))}
+                rows={5}
+                className="w-full px-3 py-2.5 text-sm rounded-xl border outline-none transition-all resize-none focus:ring-2 focus:ring-[var(--teal)]/30 focus:border-[var(--teal)] border-border bg-background"
+              />
+            </div>
+            <div className="flex gap-2 pt-1">
+              <Button variant="outline" className="flex-1 rounded-xl text-sm" onClick={() => setEditPost(null)} disabled={editSubmitting}>취소</Button>
+              <Button className="flex-1 rounded-xl text-sm text-white" style={{ background: "var(--teal)" }} onClick={handleEditSubmit} disabled={editSubmitting}>
+                {editSubmitting ? <Loader2 size={14} className="animate-spin" /> : "저장하기"}
               </Button>
             </div>
           </div>

@@ -12,10 +12,7 @@
 import { useState, useEffect } from "react";
 import {
   Users,
-  TrendingDown,
   TrendingUp,
-  Star,
-  UserPlus,
   Download,
   Upload,
   PenLine,
@@ -233,7 +230,7 @@ export default function DashboardPage() {
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6 stagger">
+      <div className="grid grid-cols-1 gap-4 mb-6 stagger">
         <KpiCard
           title="총 인원"
           value="247명"
@@ -242,33 +239,6 @@ export default function DashboardPage() {
           icon={Users}
           color="oklch(0.65 0.14 185)"
           delay={0}
-        />
-        <KpiCard
-          title="이직률"
-          value="3.2%"
-          change="-0.8% 전월 대비"
-          changeType="up"
-          icon={TrendingDown}
-          color="oklch(0.55 0.18 150)"
-          delay={50}
-        />
-        <KpiCard
-          title="참여 점수"
-          value="87점"
-          change="+4점 전월 대비"
-          changeType="up"
-          icon={Star}
-          color="oklch(0.75 0.15 85)"
-          delay={100}
-        />
-        <KpiCard
-          title="신규 채용"
-          value="8명"
-          change="이번 달 입사"
-          changeType="neutral"
-          icon={UserPlus}
-          color="oklch(0.65 0.20 25)"
-          delay={150}
         />
       </div>
 
