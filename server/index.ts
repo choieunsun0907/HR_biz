@@ -638,6 +638,86 @@ async function startServer() {
     return res.status(201).json({ inserted });
   });
 
+  // ─── 경조사 지원 API ─────────────────────────────────────────
+
+  // GET /api/special-leave - 본인 경조사 신청 목록
+  app.get("/api/special-leave", async (req, res) => {
+    const user = getUser(req);
+    if (!user) return res.status(401).json({ error: "인증 필요" });
+    const db = getPool();
+    if (!db) return res.status(500).json({ error: "DB 연결 실패" });
+    try {
+      const [rows] = await db.execute(
+        user.role === 'admin'
+          ? "SELECT * FROM tp_special_leave ORDER BY created_at DESC"
+          : "SELECT * FROM tp_special_leave WHERE user_id = ? ORDER BY created_at DESC",
+        user.role === 'admin' ? [] : [user.id]
+      ) as [mysql.RowDataPacket[], mysql.FieldPacket[]];
+      return res.json(rows);
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ error: "조회 실패" });
+    }
+  });
+
+  // POST /api/special-leave - 경조사 신청 (파일 포함)
+  app.post("/api/special-leave", async (req, res) => {
+    const user = getUser(req);
+    if (!user) return res.status(401).json({ error: "인증 필요" });
+    const db = getPool();
+    if (!db) return res.status(500).json({ error: "DB 연결 실패" });
+    try {
+      const { leave_type, leave_days, reason, event_date, file_key, file_name, file_url } = req.body;
+      if (!leave_type) return res.status(400).json({ error: "경조사 유형 필요" });
+      const now = Date.now();
+      const [result] = await db.execute(
+        "INSERT INTO tp_special_leave (user_id, user_name, user_dept, leave_type, leave_days, reason, event_date, status, file_key, file_name, file_url, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        [user.id, user.name, user.dept || '', leave_type, leave_days || 1, reason || '', event_date || null, '대기', file_key || null, file_name || null, file_url || null, now, now]
+      ) as [mysql.ResultSetHeader, mysql.FieldPacket[]];
+      return res.status(201).json({ id: result.insertId });
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ error: "신청 실패" });
+    }
+  });
+
+  // POST /api/special-leave/upload - 증빙서류 파일 업로드
+  app.post("/api/special-leave/upload", async (req, res) => {
+    const user = getUser(req);
+    if (!user) return res.status(401).json({ error: "인증 필요" });
+    try {
+      const { file_data, file_name, mime_type } = req.body;
+      if (!file_data || !file_name) return res.status(400).json({ error: "파일 데이터 필요" });
+      // 파일 크기 체크 (10MB)
+      const buffer = Buffer.from(file_data, 'base64');
+      if (buffer.length > 10 * 1024 * 1024) return res.status(400).json({ error: "파일 크기는 10MB 이하여야 합니다" });
+      // 파일을 data URL로 변환하여 키로 사용 (스토리지 없이 DB에 메타데이터만 저장)
+      const fileKey = `special-leave/${user.id}/${Date.now()}-${file_name}`;
+      const dataUrl = `data:${mime_type || 'application/octet-stream'};base64,${file_data}`;
+      return res.json({ key: fileKey, url: dataUrl, file_name });
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ error: "파일 업로드 실패" });
+    }
+  });
+
+  // PATCH /api/special-leave/:id/status - 관리자 상태 변경
+  app.patch("/api/special-leave/:id/status", async (req, res) => {
+    const user = getUser(req);
+    if (!user || user.role !== 'admin') return res.status(403).json({ error: "관리자 권한 필요" });
+    const db = getPool();
+    if (!db) return res.status(500).json({ error: "DB 연결 실패" });
+    try {
+      const { status } = req.body;
+      if (!['승인', '거절', '대기'].includes(status)) return res.status(400).json({ error: "유효하지 않은 상태" });
+      await db.execute("UPDATE tp_special_leave SET status = ?, updated_at = ? WHERE id = ?", [status, Date.now(), req.params.id]);
+      return res.json({ success: true });
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ error: "상태 변경 실패" });
+    }
+  });
+
   // ─── 정적 파일 서빙 ─────────────────────────────────────────
 
   const staticPath =

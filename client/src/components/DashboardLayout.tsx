@@ -290,6 +290,11 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         {/* Page Content */}
         <main className="flex-1 overflow-y-auto print:overflow-visible print:h-auto">
           {children}
+          <footer className="px-6 py-4 border-t border-border/50 print:hidden">
+            <p className="text-center text-[11px] text-muted-foreground/60">
+              Copyright 2026 ⓒ ChoiEunsun. All rights reserved. (싸카스포츠 HR Platform)
+            </p>
+          </footer>
         </main>
       </div>
     </div>

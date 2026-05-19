@@ -15,7 +15,7 @@
  *   - 연차 일괄 부여 기능
  */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import {
   CalendarDays,
   Clock,
@@ -325,47 +325,83 @@ function LeaveRing({ used, total }: { used: number; total: number }) {
   );
 }
 
-function MiniCalendar({ calendarData }: { calendarData: Record<number, { type: string; label: string }> }) {
-  const [month] = useState(4);
-  const year = 2025;
-  const firstDay = new Date(year, month, 1).getDay();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const today = 18;
+function FullCalendar({ calendarData }: { calendarData: Record<number, { type: string; label: string }> }) {
+  const now = new Date();
+  const [viewYear, setViewYear] = useState(now.getFullYear());
+  const [viewMonth, setViewMonth] = useState(now.getMonth()); // 0-indexed
+  const todayDate = now.getDate();
+  const todayMonth = now.getMonth();
+  const todayYear = now.getFullYear();
+
+  const firstDay = new Date(viewYear, viewMonth, 1).getDay();
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
   const cells: (number | null)[] = [];
   for (let i = 0; i < (firstDay === 0 ? 6 : firstDay - 1); i++) cells.push(null);
   for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
   const dayLabels = ["월", "화", "수", "목", "금", "토", "일"];
+  const monthNames = ["1월", "2월", "3월", "4월", "5월", "6월", "7월", "8월", "9월", "10월", "11월", "12월"];
+
+  const goPrev = () => {
+    if (viewMonth === 0) { setViewYear(y => y - 1); setViewMonth(11); }
+    else setViewMonth(m => m - 1);
+  };
+  const goNext = () => {
+    if (viewMonth === 11) { setViewYear(y => y + 1); setViewMonth(0); }
+    else setViewMonth(m => m + 1);
+  };
+  const goToday = () => { setViewYear(now.getFullYear()); setViewMonth(now.getMonth()); };
+
   return (
     <div>
-      <div className="grid grid-cols-7 gap-1 mb-2">
-        {dayLabels.map((d) => (
-          <div key={d} className="text-center text-[11px] font-semibold text-muted-foreground py-1">{d}</div>
+      {/* 헤더: 연월 + 이동 버튼 */}
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <span className="font-bold text-sm text-foreground">{viewYear}년 {monthNames[viewMonth]}</span>
+          {(viewYear !== todayYear || viewMonth !== todayMonth) && (
+            <button onClick={goToday} className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--teal-light)] text-[var(--teal-dark)] font-medium hover:bg-[var(--teal)]/20 transition-colors">
+              오늘
+            </button>
+          )}
+        </div>
+        <div className="flex gap-1">
+          <Button variant="ghost" size="icon" className="w-7 h-7 rounded-lg" onClick={goPrev}><ChevronLeft size={14} /></Button>
+          <Button variant="ghost" size="icon" className="w-7 h-7 rounded-lg" onClick={goNext}><ChevronRight size={14} /></Button>
+        </div>
+      </div>
+      {/* 요일 헤더 */}
+      <div className="grid grid-cols-7 gap-1 mb-1">
+        {dayLabels.map((d, i) => (
+          <div key={d} className={cn("text-center text-[11px] font-semibold py-1", i >= 5 ? "text-rose-400" : "text-muted-foreground")}>{d}</div>
         ))}
       </div>
+      {/* 날짜 셀 */}
       <div className="grid grid-cols-7 gap-1">
         {cells.map((d, i) => {
           if (!d) return <div key={`empty-${i}`} />;
           const info = calendarData[d];
-          const isToday = d === today;
+          const isToday = d === todayDate && viewMonth === todayMonth && viewYear === todayYear;
           const isWeekend = (i % 7) >= 5;
           return (
             <div key={d} className={cn(
-              "h-9 flex flex-col items-center justify-center rounded-lg text-xs font-medium cursor-pointer transition-all hover:scale-105",
-              isToday && "ring-2 ring-[var(--teal)] ring-offset-1",
+              "h-9 flex flex-col items-center justify-center rounded-lg text-xs font-medium transition-all hover:scale-105 cursor-default",
+              isToday && "ring-2 ring-[var(--teal)] ring-offset-1 font-bold",
               info?.type === "leave" && "bg-[var(--teal)] text-white",
-              info?.type === "pending" && "bg-amber-50 text-amber-600",
-              !info && isWeekend && "text-muted-foreground/50",
+              info?.type === "pending" && "bg-amber-100 text-amber-700",
+              !info && isWeekend && "text-rose-400/60",
               !info && !isWeekend && "text-foreground hover:bg-muted"
             )} title={info?.label}>
               {d}
-              {info && <div className="w-1 h-1 rounded-full mt-0.5 bg-current opacity-60" />}
+              {info && <div className="w-1 h-1 rounded-full mt-0.5 bg-current opacity-70" />}
             </div>
           );
         })}
       </div>
-      <div className="flex items-center gap-3 mt-3 text-[11px] text-muted-foreground">
-        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-[var(--teal)] inline-block" />연차</span>
-        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-amber-50 border border-amber-200 inline-block" />대기</span>
+      {/* 범례 */}
+      <div className="flex items-center gap-4 mt-3 pt-3 border-t border-border/50 text-[11px] text-muted-foreground">
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-[var(--teal)] inline-block" />연차 승인</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-amber-100 border border-amber-300 inline-block" />승인 대기</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded ring-2 ring-[var(--teal)] inline-block" />오늘</span>
       </div>
     </div>
   );
@@ -423,26 +459,224 @@ function LeaveRequestDialog({ remaining }: { remaining: number }) {
 }
 
 function SpecialLeavePanel() {
+  const { user } = useAuth();
+  const [selectedType, setSelectedType] = useState<typeof specialLeaveTypes[0] | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [form, setForm] = useState({ reason: "", event_date: "" });
+  const [uploadedFile, setUploadedFile] = useState<{ key: string; url: string; name: string } | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [myRequests, setMyRequests] = useState<Array<{ id: number; leave_type: string; leave_days: number; status: string; reason: string; event_date: string; file_name: string | null; created_at: number }>>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 신청 내역 로드
+  const loadRequests = useCallback(async () => {
+    try {
+      const res = await fetch("/api/special-leave", { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        setMyRequests(data);
+      }
+    } catch { /* silent */ }
+  }, []);
+
+  useState(() => { loadRequests(); });
+
+  const handleTypeClick = (item: typeof specialLeaveTypes[0]) => {
+    setSelectedType(item);
+    setForm({ reason: "", event_date: "" });
+    setUploadedFile(null);
+    setDialogOpen(true);
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) { toast.error("파일 크기는 10MB 이하여야 합니다"); return; }
+    const allowed = ["application/pdf", "image/jpeg", "image/png", "image/jpg"];
+    if (!allowed.includes(file.type)) { toast.error("PDF, JPG, PNG 파일만 업로드 가능합니다"); return; }
+    setUploading(true);
+    try {
+      const reader = new FileReader();
+      reader.onload = async (ev) => {
+        const base64 = (ev.target?.result as string).split(",")[1];
+        const res = await fetch("/api/special-leave/upload", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ file_data: base64, file_name: file.name, mime_type: file.type }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setUploadedFile({ key: data.key, url: data.url, name: file.name });
+          toast.success("파일 업로드 완료", { description: file.name });
+        } else {
+          const err = await res.json();
+          toast.error("업로드 실패", { description: err.error });
+        }
+        setUploading(false);
+      };
+      reader.readAsDataURL(file);
+    } catch {
+      toast.error("업로드 중 오류가 발생했습니다");
+      setUploading(false);
+    }
+  };
+
+  const handleSubmit = async () => {
+    if (!selectedType) return;
+    if (!form.event_date) { toast.error("행사일을 입력해주세요"); return; }
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/special-leave", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          leave_type: selectedType.label,
+          leave_days: selectedType.days,
+          reason: form.reason,
+          event_date: form.event_date,
+          file_key: uploadedFile?.key || null,
+          file_name: uploadedFile?.name || null,
+          file_url: uploadedFile?.url || null,
+        }),
+      });
+      if (res.ok) {
+        toast.success(`${selectedType.label} 휴가 신청 완료`, { description: "승인 대기 중입니다" });
+        setDialogOpen(false);
+        loadRequests();
+      } else {
+        const err = await res.json();
+        toast.error("신청 실패", { description: err.error });
+      }
+    } catch {
+      toast.error("신청 중 오류가 발생했습니다");
+    }
+    setSubmitting(false);
+  };
+
+  const statusColor: Record<string, string> = {
+    "승인": "bg-[var(--teal-light)] text-[var(--teal-dark)]",
+    "대기": "bg-amber-50 text-amber-600",
+    "거절": "bg-red-50 text-red-500",
+  };
+
   return (
     <div className="space-y-4">
+      {/* 유형 선택 카드 */}
       <div className="grid grid-cols-2 gap-3">
         {specialLeaveTypes.map((item) => (
-          <div key={item.label} className="p-4 bg-white rounded-2xl border border-border hover:shadow-sm transition-all cursor-pointer"
-            onClick={() => toast.info(`${item.label} 휴가 신청`, { description: "증빙 서류를 업로드해주세요" })}>
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-3" style={{ background: item.color + "20" }}>
+          <div key={item.label}
+            className="p-4 bg-white rounded-2xl border border-border hover:shadow-md hover:border-[var(--teal)]/40 transition-all cursor-pointer group"
+            onClick={() => handleTypeClick(item)}>
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-3 group-hover:scale-110 transition-transform" style={{ background: item.color + "20" }}>
               <item.icon size={20} style={{ color: item.color }} />
             </div>
             <div className="font-semibold text-sm text-foreground">{item.label}</div>
             <div className="text-xs text-muted-foreground mt-0.5">유급 {item.days}일</div>
+            <div className="text-[10px] text-[var(--teal)] mt-1.5 font-medium opacity-0 group-hover:opacity-100 transition-opacity">신청하기 →</div>
           </div>
         ))}
       </div>
-      <div className="border-2 border-dashed border-border rounded-2xl p-6 text-center cursor-pointer hover:border-[var(--teal)] hover:bg-[var(--teal-light)] transition-all"
-        onClick={() => toast.info("파일 업로드", { description: "증빙 서류를 선택해주세요" })}>
-        <Upload size={24} className="mx-auto text-muted-foreground mb-2" />
-        <div className="text-sm font-medium text-foreground">증빙 서류 업로드</div>
-        <div className="text-xs text-muted-foreground mt-1">PDF, JPG, PNG · 최대 10MB</div>
-      </div>
+
+      {/* 신청 내역 */}
+      {myRequests.length > 0 && (
+        <div className="bg-white rounded-2xl border border-border overflow-hidden">
+          <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+            <span className="text-sm font-semibold text-foreground">나의 경조사 신청 내역</span>
+            <span className="text-xs text-muted-foreground">{myRequests.length}건</span>
+          </div>
+          <div className="divide-y divide-border">
+            {myRequests.slice(0, 5).map((r) => (
+              <div key={r.id} className="flex items-center gap-3 px-4 py-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-foreground">{r.leave_type}</span>
+                    <span className={cn("text-[10px] font-bold px-2 py-0.5 rounded-full", statusColor[r.status] || "bg-muted text-muted-foreground")}>{r.status}</span>
+                    {r.file_name && <span className="text-[10px] text-[var(--teal)] bg-[var(--teal-light)] px-1.5 py-0.5 rounded-full">파일체줄</span>}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-0.5">행사일: {r.event_date || "-"} · {r.leave_days}일</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 신청 다이얼로그 */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-w-md rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold">
+              {selectedType && (
+                <span className="flex items-center gap-2">
+                  <span className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: selectedType.color + "20" }}>
+                    {selectedType && <selectedType.icon size={16} style={{ color: selectedType.color }} />}
+                  </span>
+                  {selectedType.label} 휴가 신청
+                </span>
+              )}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div className="p-3 bg-[var(--teal-light)] rounded-xl text-xs text-[var(--teal-dark)]">
+              유급 <strong>{selectedType?.days}일</strong> 적용 · 증빙서류 제출 시 승인 처리됩니다
+            </div>
+            <div>
+              <label className="text-sm font-medium text-foreground mb-1.5 block">행사일 <span className="text-red-400">*</span></label>
+              <input type="date" value={form.event_date} onChange={(e) => setForm({ ...form, event_date: e.target.value })}
+                className="w-full px-3 py-2 text-sm border border-border rounded-xl outline-none focus:ring-2 focus:ring-[var(--teal)]/30" />
+            </div>
+            <div>
+              <label className="text-sm font-medium text-foreground mb-1.5 block">사유 (선택)</label>
+              <textarea value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })}
+                placeholder="추가 사유를 입력해주세요" rows={2}
+                className="w-full px-3 py-2 text-sm border border-border rounded-xl outline-none focus:ring-2 focus:ring-[var(--teal)]/30 resize-none" />
+            </div>
+            {/* 파일 업로드 */}
+            <div>
+              <label className="text-sm font-medium text-foreground mb-1.5 block">증빙서류 업로드</label>
+              <input ref={fileInputRef} type="file" accept=".pdf,.jpg,.jpeg,.png" className="hidden" onChange={handleFileChange} />
+              {uploadedFile ? (
+                <div className="flex items-center gap-2 p-3 bg-[var(--teal-light)] rounded-xl border border-[var(--teal)]/30">
+                  <div className="w-8 h-8 rounded-lg bg-[var(--teal)] flex items-center justify-center">
+                    <Upload size={14} className="text-white" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-medium text-foreground truncate">{uploadedFile.name}</div>
+                    <div className="text-[10px] text-[var(--teal-dark)]">업로드 완료</div>
+                  </div>
+                  <button onClick={() => setUploadedFile(null)} className="text-muted-foreground hover:text-foreground">
+                    <X size={14} />
+                  </button>
+                </div>
+              ) : (
+                <div
+                  className={cn("border-2 border-dashed border-border rounded-xl p-4 text-center cursor-pointer hover:border-[var(--teal)] hover:bg-[var(--teal-light)] transition-all", uploading && "opacity-60 pointer-events-none")}
+                  onClick={() => fileInputRef.current?.click()}>
+                  {uploading ? (
+                    <div className="text-sm text-muted-foreground">업로드 중...</div>
+                  ) : (
+                    <>
+                      <Upload size={20} className="mx-auto text-muted-foreground mb-1.5" />
+                      <div className="text-sm font-medium text-foreground">클릭하여 파일 선택</div>
+                      <div className="text-xs text-muted-foreground mt-0.5">PDF, JPG, PNG · 최대 10MB</div>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+            <Button
+              className="w-full rounded-xl text-white"
+              style={{ background: "var(--teal)" }}
+              onClick={handleSubmit}
+              disabled={submitting}>
+              {submitting ? "신청 중..." : "휴가 신청"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -520,14 +754,8 @@ function EmployeeView({ userName, userDept }: { userName: string; userDept: stri
           </div>
 
           <div className="bg-white rounded-2xl p-5 shadow-sm border border-border">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="section-title">2025년 5월</h2>
-              <div className="flex gap-1">
-                <Button variant="ghost" size="icon" className="w-7 h-7 rounded-lg"><ChevronLeft size={14} /></Button>
-                <Button variant="ghost" size="icon" className="w-7 h-7 rounded-lg"><ChevronRight size={14} /></Button>
-              </div>
-            </div>
-            <MiniCalendar calendarData={calendarData} />
+            <h2 className="section-title mb-4">근태 캘린더</h2>
+            <FullCalendar calendarData={calendarData} />
           </div>
         </div>
 

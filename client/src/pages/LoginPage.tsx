@@ -153,7 +153,7 @@ export default function LoginPage() {
         </div>
 
         <p className="text-center text-xs text-slate-400 mt-4">
-          © 2025 싸카스포츠 HR Platform
+          Copyright 2026 ⓒ ChoiEunsun. All rights reserved. (싸카스포츠 HR Platform)
         </p>
       </div>
     </div>
