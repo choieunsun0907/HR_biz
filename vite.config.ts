@@ -257,12 +257,11 @@ function vitePluginAuthApi(): Plugin {
     res.end(body);
   }
 
-  function setCookieHeader(res: any, token: string) {
-    res.setHeader("Set-Cookie", `${COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${7 * 24 * 3600}`);
+    function setCookieHeader(res: any, token: string) {
+    res.setHeader("Set-Cookie", `${COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=None; Secure; Max-Age=${7 * 24 * 3600}`);
   }
-
   function clearCookieHeader(res: any) {
-    res.setHeader("Set-Cookie", `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
+    res.setHeader("Set-Cookie", `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=None; Secure; Max-Age=0`);
   }
 
   return {
