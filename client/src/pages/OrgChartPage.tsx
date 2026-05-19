@@ -359,7 +359,7 @@ function DeptBlock({
   onDropToDept: (targetDept: Department) => void;
 }) {
   const [isOver, setIsOver] = useState(false);
-  const head    = employees.find(e => e.id === dept.headId)!;
+  const head    = employees.find(e => e.id === dept.headId);
   const members = employees.filter(e => e.dept === dept.name && !e.isHead);
 
   // 드롭 가능 여부: 편집 모드이고, 드래그 중인 직원이 이 부서 소속이 아닐 때
@@ -644,19 +644,19 @@ export default function OrgChartPage() {
         const mapped: OrgEmployee[] = data.employees.map((e: Record<string, unknown>) => ({
           id: e.id as number,
           name: e.name as string,
-          title: (e.title as string) || (e.position as string) || "직원",
+          title: (e.role as string) || (e.title as string) || (e.position as string) || "직원",
           level: (e.grade as string) || "사원",
-          dept: (e.department as string) || "미배정",
-          team: (e.department as string) || "미배정",
+          dept: (e.dept as string) || (e.department as string) || "미배정",
+          team: (e.dept as string) || (e.department as string) || "미배정",
           email: (e.email as string) || "",
           phone: (e.phone as string) || "",
           location: (e.location as string) || "서울 본사",
           joinDate: (e.join_date as string) || "",
-          avatar: DEPT_COLORS[(e.department as string) || ""] || "#6B7280",
-          skills: [],
+          avatar: DEPT_COLORS[(e.dept as string) || (e.department as string) || ""] || "#6B7280",
+          skills: Array.isArray(e.skills) ? (e.skills as string[]) : [],
           reportsTo: null,
           isHead: false,
-          engagementScore: 80,
+          engagementScore: typeof e.engagement_score === "number" ? e.engagement_score as number : 80,
         }));
         // 부서별 첫 번째 직원을 부서장으로 설정
         const deptHeads: Record<string, number> = {};
@@ -688,7 +688,34 @@ export default function OrgChartPage() {
   const [exporting, setExporting]         = useState<"excel" | "pdf" | null>(null);
   const treeRef = useRef<HTMLDivElement | null>(null);
 
-  const CEO = employees.find(e => e.id === 0)!;
+  const CEO = employees.find(e => e.isHead && e.dept === "경영진") ?? employees.find(e => e.id === 0) ?? null;
+
+  // 직원 데이터 기반으로 부서 목록 동적 생성
+  const departments = useMemo<Department[]>(() => {
+    const DEPT_COLOR_MAP: Record<string, string> = {
+      "개발팀": "#7C3AED", "인사팀": "#0891B2", "인사*총무": "#0891B2",
+      "마케팅": "#DB2777", "영업팀": "#D97706", "디자인": "#059669",
+      "재무팀": "#DC2626", "경영진": "#0D9488", "미배정": "#6B7280",
+    };
+    const deptMap: Record<string, { headId: number; color: string; id: string }> = {};
+    employees.forEach(e => {
+      if (!deptMap[e.dept]) {
+        const color = DEPT_COLOR_MAP[e.dept] || "#6B7280";
+        // 부서명에서 고유 id 생성 (특수문자 제거, 공백→_)
+        const id = e.dept.toLowerCase()
+          .replace(/\*/g, "_")
+          .replace(/[^a-z0-9가-힣_]/g, "")
+          .replace(/\s+/g, "_") || `dept_${Object.keys(deptMap).length}`;
+        deptMap[e.dept] = { headId: e.id, color, id };
+      }
+      if (e.isHead) {
+        deptMap[e.dept].headId = e.id;
+      }
+    });
+    return Object.entries(deptMap)
+      .filter(([name]) => name !== "경영진" && name !== "미배정")
+      .map(([name, val]) => ({ id: val.id, name, color: val.color, headId: val.headId }));
+  }, [employees]);
 
   const highlightIds = useMemo<Set<number>>(() => {
     if (!query.trim()) return new Set();
@@ -788,7 +815,7 @@ export default function OrgChartPage() {
       XLSX.utils.book_append_sheet(wb, ws1, "전체 직원 목록");
 
       // 시트2: 부서별 요약
-      const deptSummary = DEPARTMENTS.map(d => {
+      const deptSummary = departments.map(d => {
         const deptEmps = employees.filter(e => e.dept === d.name);
         const head = employees.find(e => e.id === d.headId);
         const avgScore = deptEmps.length > 0
@@ -915,7 +942,7 @@ export default function OrgChartPage() {
       pdf.text("싸카스포츠 조직도", 10, 8);
       pdf.setFontSize(8);
       pdf.setFont("helvetica", "normal");
-      pdf.text(`생성일: ${today}  |  총 인원: ${employees.length}명  |  부서: ${DEPARTMENTS.length}개`, pdfW - 10, 8, { align: "right" });
+      pdf.text(`생성일: ${today}  |  총 인원: ${employees.length}명  |  부서: ${departments.length}개`, pdfW - 10, 8, { align: "right" });
 
       // 조직도 이미지
       const imgData = canvas.toDataURL("image/png");
@@ -950,7 +977,7 @@ export default function OrgChartPage() {
 
   const stats = useMemo(() => ({
     total: employees.length,
-    depts: DEPARTMENTS.length,
+    depts: departments.length,
     heads: employees.filter(e => e.isHead).length,
     avgScore: Math.round(employees.reduce((s, e) => s + e.engagementScore, 0) / employees.length),
   }), [employees]);
@@ -1135,6 +1162,7 @@ export default function OrgChartPage() {
             <div ref={treeRef} className="min-w-max p-8 origin-top-left transition-transform duration-200 print:transform-none print:scale-100"
               style={{ transform: `scale(${zoom})` }}>
               {/* CEO */}
+              {CEO && (
               <div className="flex flex-col items-center mb-8">
                 <EmployeeNode
                   emp={CEO}
@@ -1152,10 +1180,11 @@ export default function OrgChartPage() {
                   <div className="h-0.5 w-[calc(100%-7rem)] max-w-4xl" style={{ background: "#0D948840" }} />
                 </div>
               </div>
+              )}
 
               {/* 부서 블록 */}
               <div className="flex flex-wrap justify-center gap-8">
-                {DEPARTMENTS.map((dept) => (
+                {departments.map((dept) => (
                   <div key={dept.id} className="flex flex-col items-center">
                     <div className="flex justify-center">
                       <div className="w-0.5 h-6" style={{ background: `${dept.color}50` }} />
