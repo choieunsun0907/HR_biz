@@ -42,3 +42,22 @@
 
 ## 버그 수정 (2)
 - [x] OrgChartPage TypeError 수정 (CEO id=0 없음, e.department→e.dept 필드명, 중복 key 경고)
+
+## 연차 신청 기능 (방식 C + 방식 A)
+- [ ] DB leave_requests 테이블 생성 (이름, 시작일, 종료일, 반차, 유형, 상태, 웹훅여부)
+- [ ] 서버 API: 연차 신청 CRUD (GET/POST/PATCH/DELETE /api/leave-requests)
+- [ ] 서버 API: 구글 Apps Script 웹훅 수신 엔드포인트 (POST /api/leave/google-webhook)
+- [ ] 근태·연차 페이지에 직원용 연차 신청 폼 모달 추가 (방식 C)
+- [ ] 직원용 본인 연차 신청 목록 및 상태 표시
+- [ ] 관리자용 연차 신청 목록 및 승인/반려 UI
+- [ ] Google Apps Script 웹훅 코드 및 연동 가이드 문서 작성 (방식 A)
+
+## 연차 신청 기능 완료 (2026-05-28)
+- [x] DB tp_leave_requests 테이블 생성
+- [x] 서버 API: 연차 신청 CRUD (GET/POST/PATCH/DELETE /api/leave-requests)
+- [x] 서버 API: 구글 Apps Script 웹훅 수신 (POST /api/leave/google-webhook)
+- [x] 직원용 연차 신청 폼 모달 (방식 C) - DB 저장 및 취소 기능
+- [x] 직원용 본인 연차 신청 목록 및 상태 표시 (구글폼 출처 표시)
+- [x] 관리자용 연차 신청 목록 승인/반려 UI - DB 연동
+- [x] Google Apps Script 웹훅 코드 및 연동 가이드 문서 작성 (방식 A)
+- [x] 연차 신청 로직 단위 테스트 8개 (vitest, 전체 통과)

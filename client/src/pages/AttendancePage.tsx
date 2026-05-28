@@ -407,54 +407,133 @@ function FullCalendar({ calendarData }: { calendarData: Record<number, { type: s
   );
 }
 
-function LeaveRequestDialog({ remaining }: { remaining: number }) {
-  const [form, setForm] = useState({ type: "연차", start: "", end: "", reason: "" });
-  const handleSubmit = () => {
-    if (!form.start || !form.end || !form.reason) { toast.error("모든 항목을 입력해주세요"); return; }
-    toast.success("연차 신청이 완료되었습니다", { description: "승인 후 잔여 연차에서 자동 차감됩니다." });
+const LEAVE_TYPES = [
+  "개인 사유로 인한 휴가",
+  "병가(질병 또는 부상)",
+  "경조사 휴가(유급휴가)",
+  "배심원 참여, 예비군 훈련 등 법적 사유로 인한 휴가(유급휴가)",
+  "무급 휴가",
+  "기타",
+];
+
+function LeaveRequestDialog({ remaining, onSuccess }: { remaining: number; onSuccess?: () => void }) {
+  const [form, setForm] = useState({
+    leave_type: "개인 사유로 인한 휴가",
+    start_date: "",
+    end_date: "",
+    half_day: "" as "" | "오전" | "오후",
+    manager_approved: false,
+    note: "",
+  });
+  const [submitting, setSubmitting] = useState(false);
+  const [open, setOpen] = useState(false);
+
+  const handleSubmit = async () => {
+    if (!form.start_date || !form.end_date || !form.leave_type) {
+      toast.error("필수 항목을 입력해주세요");
+      return;
+    }
+    if (!form.manager_approved) {
+      toast.error("부서장 사전 승인 확인이 필요합니다");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/leave-requests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          start_date: form.start_date,
+          end_date: form.end_date,
+          half_day: form.half_day || null,
+          leave_type: form.leave_type,
+          manager_approved: form.manager_approved,
+          note: form.note || null,
+        }),
+      });
+      if (res.ok) {
+        toast.success("연차 신청이 완료되었습니다", { description: "관리자 승인 후 잔여 연차에서 자동 차감됩니다." });
+        setForm({ leave_type: "개인 사유로 인한 휴가", start_date: "", end_date: "", half_day: "", manager_approved: false, note: "" });
+        setOpen(false);
+        onSuccess?.();
+      } else {
+        const err = await res.json();
+        toast.error("신청 실패", { description: err.error });
+      }
+    } catch {
+      toast.error("네트워크 오류가 발생했습니다");
+    } finally {
+      setSubmitting(false);
+    }
   };
+
   return (
-    <DialogContent className="max-w-md rounded-2xl">
-      <DialogHeader><DialogTitle className="text-lg font-bold">연차 신청</DialogTitle></DialogHeader>
-      <div className="space-y-4 pt-2">
-        <div>
-          <label className="text-sm font-medium text-foreground mb-1.5 block">휴가 유형</label>
-          <div className="flex flex-wrap gap-2">
-            {["연차", "반차(오전)", "반차(오후)", "병가"].map((t) => (
-              <button key={t} onClick={() => setForm({ ...form, type: t })}
-                className={cn("px-3 py-1.5 rounded-lg text-xs font-medium transition-all",
-                  form.type === t ? "bg-[var(--teal)] text-white" : "bg-muted text-muted-foreground hover:bg-muted/80")}>
-                {t}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="text-sm font-medium text-foreground mb-1.5 block">시작일</label>
-            <input type="date" value={form.start} onChange={(e) => setForm({ ...form, start: e.target.value })}
-              className="w-full px-3 py-2 text-sm border border-border rounded-xl outline-none focus:ring-2 focus:ring-[var(--teal)]/30" />
-          </div>
-          <div>
-            <label className="text-sm font-medium text-foreground mb-1.5 block">종료일</label>
-            <input type="date" value={form.end} onChange={(e) => setForm({ ...form, end: e.target.value })}
-              className="w-full px-3 py-2 text-sm border border-border rounded-xl outline-none focus:ring-2 focus:ring-[var(--teal)]/30" />
-          </div>
-        </div>
-        <div>
-          <label className="text-sm font-medium text-foreground mb-1.5 block">사유</label>
-          <textarea value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })}
-            placeholder="휴가 사유를 입력해주세요" rows={3}
-            className="w-full px-3 py-2 text-sm border border-border rounded-xl outline-none focus:ring-2 focus:ring-[var(--teal)]/30 resize-none" />
-        </div>
-        <div className="p-3 bg-[var(--teal-light)] rounded-xl text-xs text-[var(--teal-dark)]">
-          <strong>잔여 연차 {remaining}일</strong> · 승인 시 자동 차감됩니다
-        </div>
-        <Button className="w-full rounded-xl text-white" style={{ background: "var(--teal)" }} onClick={handleSubmit}>
-          신청하기
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button className="gap-2 rounded-xl text-white text-sm" style={{ background: "var(--teal)" }}>
+          <Plus size={16} />연차 신청
         </Button>
-      </div>
-    </DialogContent>
+      </DialogTrigger>
+      <DialogContent className="max-w-md rounded-2xl">
+        <DialogHeader><DialogTitle className="text-lg font-bold">연차 신청</DialogTitle></DialogHeader>
+        <div className="space-y-4 pt-2">
+          <div>
+            <label className="text-sm font-medium text-foreground mb-1.5 block">휴가 유형 <span className="text-red-500">*</span></label>
+            <select value={form.leave_type} onChange={(e) => setForm({ ...form, leave_type: e.target.value })}
+              className="w-full px-3 py-2 text-sm border border-border rounded-xl outline-none focus:ring-2 focus:ring-[var(--teal)]/30 bg-white">
+              {LEAVE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-sm font-medium text-foreground mb-1.5 block">시작일 <span className="text-red-500">*</span></label>
+              <input type="date" value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value })}
+                className="w-full px-3 py-2 text-sm border border-border rounded-xl outline-none focus:ring-2 focus:ring-[var(--teal)]/30" />
+            </div>
+            <div>
+              <label className="text-sm font-medium text-foreground mb-1.5 block">종료일 <span className="text-red-500">*</span></label>
+              <input type="date" value={form.end_date} onChange={(e) => setForm({ ...form, end_date: e.target.value })}
+                className="w-full px-3 py-2 text-sm border border-border rounded-xl outline-none focus:ring-2 focus:ring-[var(--teal)]/30" />
+            </div>
+          </div>
+          <div>
+            <label className="text-sm font-medium text-foreground mb-1.5 block">반차 선택 (해당 시만)</label>
+            <div className="flex gap-2">
+              {(["", "오전", "오후"] as const).map((v) => (
+                <button key={v} onClick={() => setForm({ ...form, half_day: v })}
+                  className={cn("px-3 py-1.5 rounded-lg text-xs font-medium transition-all",
+                    form.half_day === v ? "bg-[var(--teal)] text-white" : "bg-muted text-muted-foreground hover:bg-muted/80")}>
+                  {v === "" ? "종일" : v}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="text-sm font-medium text-foreground mb-1.5 block">메모 (선택)</label>
+            <textarea value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })}
+              placeholder="추가 메모를 입력해주세요" rows={2}
+              className="w-full px-3 py-2 text-sm border border-border rounded-xl outline-none focus:ring-2 focus:ring-[var(--teal)]/30 resize-none" />
+          </div>
+          <label className="flex items-start gap-2.5 cursor-pointer">
+            <input type="checkbox" checked={form.manager_approved}
+              onChange={(e) => setForm({ ...form, manager_approved: e.target.checked })}
+              className="mt-0.5 accent-[var(--teal)]" />
+            <span className="text-xs text-muted-foreground">
+              <span className="font-semibold text-foreground">부서장 사전 승인 확인 *</span><br />
+              부서장 승인 후 휴가 제출하셔야 합니다. 미 보고 휴가 시 불이익이 발생할 수 있습니다.
+            </span>
+          </label>
+          <div className="p-3 bg-[var(--teal-light)] rounded-xl text-xs text-[var(--teal-dark)]">
+            <strong>잔여 연차 {remaining}일</strong> · 승인 후 잔여 연차에서 자동 차감됩니다
+          </div>
+          <Button className="w-full rounded-xl text-white" style={{ background: "var(--teal)" }}
+            onClick={handleSubmit} disabled={submitting}>
+            {submitting ? "신청 중..." : "신청하기"}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -682,18 +761,68 @@ function SpecialLeavePanel() {
 }
 
 // ─── Employee View ────────────────────────────────────────────────────────────
+interface DbLeaveRequest {
+  id: number;
+  employee_id: number;
+  employee_name: string;
+  start_date: string;
+  end_date: string;
+  half_day: string | null;
+  leave_type: string;
+  manager_approved: number;
+  status: "대기" | "승인" | "반려";
+  note: string | null;
+  source: "app" | "google_form";
+  created_at: number;
+}
 
 function EmployeeView({ userName, userDept }: { userName: string; userDept: string }) {
-  // 본인 데이터 로드 (이름 기반 매핑, 없으면 기본값)
-  const myData = employeeLeaveData[userName] ?? defaultLeaveData;
+  const [myLeaveHistory, setMyLeaveHistory] = useState<DbLeaveRequest[]>([]);
+  const [leaveLoading, setLeaveLoading] = useState(true);
+  const [empLeave, setEmpLeave] = useState<{ total_leave: number; used_leave: number } | null>(null);
+
+  const loadMyLeave = useCallback(async () => {
+    setLeaveLoading(true);
+    try {
+      const leaveRes = await fetch("/api/leave-requests", { credentials: "include" });
+      if (leaveRes.ok) setMyLeaveHistory(await leaveRes.json());
+      const empRes = await fetch("/api/employees/me", { credentials: "include" });
+      if (empRes.ok) {
+        const emp = await empRes.json();
+        setEmpLeave({ total_leave: emp.total_leave ?? 15, used_leave: emp.used_leave ?? 0 });
+      }
+    } catch { /* silent */ } finally {
+      setLeaveLoading(false);
+    }
+  }, []);
+
+  useState(() => { loadMyLeave(); });
+
+  const pendingDays = myLeaveHistory.filter(r => r.status === "대기").length;
+  const approvedDays = myLeaveHistory.filter(r => r.status === "승인").reduce((acc, r) => {
+    const start = new Date(r.start_date);
+    const end = new Date(r.end_date);
+    const diff = Math.ceil((end.getTime() - start.getTime()) / 86400000) + 1;
+    return acc + (r.half_day ? 0.5 : diff);
+  }, 0);
+  const totalLeave = empLeave?.total_leave ?? 15;
+  const usedLeave = empLeave?.used_leave ?? approvedDays;
   const leaveBalance = {
-    total: myData.total,
-    used: myData.used,
-    pending: myData.pending,
-    remaining: myData.remaining,
+    total: totalLeave,
+    used: usedLeave,
+    pending: pendingDays,
+    remaining: Math.max(0, totalLeave - usedLeave),
   };
-  const myLeaveHistory = myData.history;
-  const calendarData = myData.calendarData;
+  const calendarData: Record<number, { type: string; label: string }> = {};
+  myLeaveHistory.forEach(r => {
+    if (r.status === "승인" || r.status === "대기") {
+      const start = new Date(r.start_date);
+      const end = new Date(r.end_date);
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        calendarData[d.getDate()] = { type: r.status === "승인" ? "leave" : "pending", label: r.leave_type.slice(0, 4) };
+      }
+    }
+  });
 
   return (
     <div>
@@ -701,14 +830,7 @@ function EmployeeView({ userName, userDept }: { userName: string; userDept: stri
         <div>
           <p className="text-sm text-muted-foreground">2025년 5월 · 입사일 기준 자동 생성</p>
         </div>
-        <Dialog>
-          <DialogTrigger asChild>
-            <Button className="gap-2 rounded-xl text-white text-sm" style={{ background: "var(--teal)" }}>
-              <Plus size={16} />연차 신청
-            </Button>
-          </DialogTrigger>
-          <LeaveRequestDialog remaining={leaveBalance.remaining} />
-        </Dialog>
+        <LeaveRequestDialog remaining={leaveBalance.remaining} onSuccess={loadMyLeave} />
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
@@ -780,28 +902,44 @@ function EmployeeView({ userName, userDept }: { userName: string; userDept: stri
                   </div>
                 ) : (
                   <div className="divide-y divide-border">
-                    {myLeaveHistory.map((item) => (
+                    {myLeaveHistory.map((item) => {
+                      const startDate = item.start_date ? item.start_date.slice(0, 10) : "";
+                      const endDate = item.end_date ? item.end_date.slice(0, 10) : "";
+                      const start = new Date(item.start_date);
+                      const end = new Date(item.end_date);
+                      const diff = item.half_day ? 0.5 : Math.ceil((end.getTime() - start.getTime()) / 86400000) + 1;
+                      return (
                       <div key={item.id} className="flex items-center gap-4 px-5 py-4 hover:bg-muted/30 transition-colors">
-                        <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center text-xs font-bold shrink-0",
-                          item.status === "승인" ? "bg-[var(--teal-light)] text-[var(--teal-dark)]" : "bg-amber-50 text-amber-600")}>
-                          {item.type}
+                        <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center text-[10px] font-bold shrink-0 text-center leading-tight",
+                          item.status === "승인" ? "bg-[var(--teal-light)] text-[var(--teal-dark)]" : item.status === "반려" ? "bg-red-50 text-red-500" : "bg-amber-50 text-amber-600")}>
+                          {item.half_day ? item.half_day + "반차" : "연차"}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-semibold text-foreground">{item.reason}</span>
-                            <StatusBadge status={item.status} />
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-semibold text-foreground">{item.leave_type}</span>
+                            <StatusBadge status={item.status === "반려" ? "거절" : item.status} />
+                            {item.source === "google_form" && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-500 font-medium">구글폼</span>
+                            )}
                           </div>
-                          <div className="text-xs text-muted-foreground mt-0.5">{item.start} ~ {item.end}</div>
+                          <div className="text-xs text-muted-foreground mt-0.5">{startDate} ~ {endDate}{item.note ? ` · ${item.note}` : ""}</div>
                         </div>
                         <div className="text-right shrink-0">
-                          <div className="mono-num text-sm font-bold text-foreground">{item.days}일</div>
+                          <div className="mono-num text-sm font-bold text-foreground">{diff}일</div>
                           <div className="text-xs text-muted-foreground">차감</div>
                         </div>
-                        <div className="shrink-0">
-                          {item.status === "승인" ? <CheckCircle2 size={18} className="text-[var(--teal)]" /> : <AlertCircle size={18} className="text-amber-400" />}
+                        <div className="flex items-center gap-1 shrink-0">
+                          {item.status === "승인" ? <CheckCircle2 size={18} className="text-[var(--teal)]" /> : item.status === "반려" ? <XCircle size={18} className="text-red-400" /> : <AlertCircle size={18} className="text-amber-400" />}
+                          {item.status === "대기" && (
+                            <button onClick={async () => {
+                              const res = await fetch(`/api/leave-requests/${item.id}`, { method: "DELETE", credentials: "include" });
+                              if (res.ok) { loadMyLeave(); } else { const e = await res.json(); alert(e.error); }
+                            }} className="text-[10px] text-red-400 hover:text-red-600 ml-1">취소</button>
+                          )}
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -823,38 +961,82 @@ function EmployeeView({ userName, userDept }: { userName: string; userDept: stri
 
 // ─── Admin View ───────────────────────────────────────────────────────────────
 
+interface DbAdminLeaveRequest {
+  id: number;
+  employee_id: number | null;
+  employee_name: string;
+  start_date: string;
+  end_date: string;
+  half_day: string | null;
+  leave_type: string;
+  manager_approved: number;
+  status: "대기" | "승인" | "반려";
+  note: string | null;
+  source: "app" | "google_form";
+  created_at: number;
+  dept?: string;
+  position?: string;
+}
+
 function AdminView() {
-  const [requests, setRequests] = useState<LeaveRequest[]>(allLeaveRequests);
-  const [filterStatus, setFilterStatus] = useState<"전체" | LeaveStatus>("전체");
+  const [requests, setRequests] = useState<DbAdminLeaveRequest[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filterStatus, setFilterStatus] = useState<"전체" | "대기" | "승인" | "반려">("전체");
   const [searchQuery, setSearchQuery] = useState("");
   const [bulkGrantOpen, setBulkGrantOpen] = useState(false);
   const [bulkDays, setBulkDays] = useState("15");
   const [bulkDept, setBulkDept] = useState("전체");
 
-  const pendingCount = requests.filter((r) => r.status === "대기").length;
+  const loadRequests = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/leave-requests", { credentials: "include" });
+      if (res.ok) setRequests(await res.json());
+    } catch { /* silent */ } finally {
+      setLoading(false);
+    }
+  }, []);
 
+  useState(() => { loadRequests(); });
+
+  const pendingCount = requests.filter((r) => r.status === "대기").length;
   const filteredRequests = requests.filter((r) => {
     const matchStatus = filterStatus === "전체" || r.status === filterStatus;
-    const matchSearch = !searchQuery || r.empName.includes(searchQuery) || r.empDept.includes(searchQuery);
+    const matchSearch = !searchQuery || r.employee_name.includes(searchQuery) || (r.dept ?? "").includes(searchQuery);
     return matchStatus && matchSearch;
   });
 
-  const handleApprove = (id: number) => {
-    setRequests((prev) => prev.map((r) => r.id === id ? { ...r, status: "승인" as LeaveStatus } : r));
-    toast.success("연차 신청을 승인했습니다", { description: "직원에게 알림이 발송됩니다." });
+  const handleApprove = async (id: number) => {
+    const res = await fetch(`/api/leave-requests/${id}/status`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ status: "승인" }),
+    });
+    if (res.ok) { toast.success("연차 신청을 승인했습니다"); loadRequests(); }
+    else { const e = await res.json(); toast.error("승인 실패", { description: e.error }); }
   };
-
-  const handleReject = (id: number, name: string) => {
-    setRequests((prev) => prev.map((r) => r.id === id ? { ...r, status: "거절" as LeaveStatus } : r));
-    toast.error(`${name}의 연차 신청을 거절했습니다`);
+  const handleReject = async (id: number, name: string) => {
+    const res = await fetch(`/api/leave-requests/${id}/status`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ status: "반려" }),
+    });
+    if (res.ok) { toast.error(`${name}의 연차 신청을 반려했습니다`); loadRequests(); }
+    else { const e = await res.json(); toast.error("반려 실패", { description: e.error }); }
   };
-
-  const handleApproveAll = () => {
+  const handleApproveAll = async () => {
     const pendingIds = requests.filter((r) => r.status === "대기").map((r) => r.id);
-    setRequests((prev) => prev.map((r) => pendingIds.includes(r.id) ? { ...r, status: "승인" as LeaveStatus } : r));
+    await Promise.all(pendingIds.map(id => fetch(`/api/leave-requests/${id}/status`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ status: "승인" }),
+    })));
     toast.success(`${pendingIds.length}건의 연차 신청을 일괄 승인했습니다`);
+    loadRequests();
   };
-
   const handleBulkGrant = () => {
     const days = parseFloat(bulkDays);
     if (isNaN(days) || days <= 0) { toast.error("올바른 연차 일수를 입력해주세요"); return; }
@@ -990,7 +1172,7 @@ function AdminView() {
                     className="w-full pl-8 pr-3 py-1.5 text-xs bg-muted rounded-xl border-0 outline-none focus:ring-2 focus:ring-[var(--teal)]/30" />
                 </div>
                 <div className="flex gap-1">
-                  {(["전체", "대기", "승인", "거절"] as const).map((s) => (
+                  {(["전체", "대기", "승인", "반려"] as const).map((s) => (
                     <button key={s} onClick={() => setFilterStatus(s)}
                       className={cn("px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all",
                         filterStatus === s ? "bg-[var(--teal)] text-white" : "bg-muted text-muted-foreground hover:bg-muted/80")}>
@@ -1003,25 +1185,36 @@ function AdminView() {
 
             <ScrollArea className="max-h-72">
               <div className="divide-y divide-border">
-                {filteredRequests.length === 0 ? (
+                {loading ? (
+                  <div className="py-10 text-center text-sm text-muted-foreground">불러오는 중...</div>
+                ) : filteredRequests.length === 0 ? (
                   <div className="py-10 text-center text-sm text-muted-foreground">해당 조건의 신청이 없습니다</div>
-                ) : filteredRequests.map((req) => (
+                ) : filteredRequests.map((req) => {
+                  const startDate = req.start_date ? req.start_date.slice(0, 10) : "";
+                  const endDate = req.end_date ? req.end_date.slice(0, 10) : "";
+                  const start = new Date(req.start_date);
+                  const end = new Date(req.end_date);
+                  const diff = req.half_day ? 0.5 : Math.ceil((end.getTime() - start.getTime()) / 86400000) + 1;
+                  const initials = req.employee_name.slice(0, 2);
+                  return (
                   <div key={req.id} className="flex items-center gap-3 px-5 py-3.5 hover:bg-muted/20 transition-colors">
                     {/* Avatar */}
-                    <div className="w-9 h-9 rounded-xl flex items-center justify-center text-xs font-bold text-white shrink-0"
-                      style={{ background: req.empColor }}>
-                      {req.empAvatar}
+                    <div className="w-9 h-9 rounded-xl flex items-center justify-center text-xs font-bold text-white shrink-0 bg-[var(--teal)]">
+                      {initials}
                     </div>
                     {/* Info */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-semibold text-foreground">{req.empName}</span>
-                        <span className="text-[11px] text-muted-foreground">{req.empDept}</span>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-muted text-muted-foreground font-medium">{req.type}</span>
-                        <StatusBadge status={req.status} />
+                        <span className="text-sm font-semibold text-foreground">{req.employee_name}</span>
+                        <span className="text-[11px] text-muted-foreground">{req.dept ?? ""}</span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-muted text-muted-foreground font-medium">{req.half_day ? req.half_day + "반차" : "연차"}</span>
+                        <StatusBadge status={req.status === "반려" ? "거절" : req.status} />
+                        {req.source === "google_form" && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-500 font-medium">구글폼</span>
+                        )}
                       </div>
                       <div className="text-xs text-muted-foreground mt-0.5">
-                        {req.start} ~ {req.end} · <span className="mono-num font-semibold text-foreground">{req.days}일</span> · {req.reason}
+                        {startDate} ~ {endDate} · <span className="mono-num font-semibold text-foreground">{diff}일</span>{req.leave_type ? ` · ${req.leave_type}` : ""}{req.note ? ` · ${req.note}` : ""}
                       </div>
                     </div>
                     {/* Actions */}
@@ -1035,9 +1228,9 @@ function AdminView() {
                         </button>
                         <button
                           className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-50 text-red-500 hover:bg-red-500 hover:text-white transition-all"
-                          onClick={() => handleReject(req.id, req.empName)}
+                          onClick={() => handleReject(req.id, req.employee_name)}
                         >
-                          <X size={12} />거절
+                          <X size={12} />반려
                         </button>
                       </div>
                     )}
@@ -1049,7 +1242,8 @@ function AdminView() {
                       </div>
                     )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </ScrollArea>
           </div>

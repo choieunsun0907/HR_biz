@@ -862,6 +862,153 @@ async function startServer() {
     return res.json({ success: true });
   });
 
+  // ─── 연차 신청 API ─────────────────────────────────────────
+
+  // 연차 신청 목록 조회
+  app.get("/api/leave-requests", async (req, res) => {
+    const db = getPool()!;
+    const user = await getUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      let rows: Record<string, unknown>[];
+      if (user.role === "admin") {
+        // 관리자: 전체 목록 (직원 정보 JOIN)
+        const [r] = await (db as any).execute(
+          `SELECT lr.*, e.dept, e.position FROM tp_leave_requests lr
+           LEFT JOIN tp_employees e ON lr.employee_id = e.id
+           ORDER BY lr.created_at DESC`
+        ) as [Record<string, unknown>[], unknown];
+        rows = r;
+      } else {
+        // 직원: 본인 신청 목록
+        const [r] = await (db as any).execute(
+          `SELECT * FROM tp_leave_requests WHERE employee_id = ? ORDER BY created_at DESC`,
+          [user.id]
+        ) as [Record<string, unknown>[], unknown];
+        rows = r;
+      }
+      return res.json(rows);
+    } catch (e: unknown) {
+      return res.status(500).json({ error: String(e) });
+    }
+  });
+
+  // 연차 신청 등록 (앱 내)
+  app.post("/api/leave-requests", async (req, res) => {
+    const db = getPool()!;
+    const user = await getUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const { start_date, end_date, half_day, leave_type, manager_approved, note } = req.body;
+    if (!start_date || !end_date || !leave_type) {
+      return res.status(400).json({ error: "필수 항목을 입력해주세요" });
+    }
+    try {
+      const now = Date.now();
+      const [result] = await (db as any).execute(
+        `INSERT INTO tp_leave_requests
+         (employee_id, employee_name, start_date, end_date, half_day, leave_type, manager_approved, note, source, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'app', ?, ?)`,
+        [user.id, user.name, start_date, end_date, half_day || null, leave_type, manager_approved ? 1 : 0, note || null, now, now]
+      ) as [{ insertId: number }, unknown];
+      return res.status(201).json({ id: result.insertId, message: "연차 신청이 완료되었습니다" });
+    } catch (e: unknown) {
+      return res.status(500).json({ error: String(e) });
+    }
+  });
+
+  // 연차 신청 상태 변경 (관리자 승인/반려)
+  app.patch("/api/leave-requests/:id/status", async (req, res) => {
+    const db = getPool()!;
+    const user = await getUser(req);
+    if (!user || user.role !== "admin") return res.status(403).json({ error: "Forbidden" });
+    const { status, note } = req.body;
+    if (!status || !["승인", "반려", "대기"].includes(status)) {
+      return res.status(400).json({ error: "유효하지 않은 상태값입니다" });
+    }
+    try {
+      await (db as any).execute(
+        `UPDATE tp_leave_requests SET status = ?, note = ?, updated_at = ? WHERE id = ?`,
+        [status, note || null, Date.now(), req.params.id]
+      );
+      return res.json({ success: true });
+    } catch (e: unknown) {
+      return res.status(500).json({ error: String(e) });
+    }
+  });
+
+  // 연차 신청 삭제 (본인 또는 관리자, 대기 상태만)
+  app.delete("/api/leave-requests/:id", async (req, res) => {
+    const db = getPool()!;
+    const user = await getUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const [rows] = await (db as any).execute(
+        `SELECT * FROM tp_leave_requests WHERE id = ?`, [req.params.id]
+      ) as [Record<string, unknown>[], unknown];
+      if (!rows.length) return res.status(404).json({ error: "Not found" });
+      const row = rows[0];
+      if (user.role !== "admin" && row.employee_id !== user.id) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      if (user.role !== "admin" && row.status !== "대기") {
+        return res.status(400).json({ error: "대기 상태의 신청만 취소할 수 있습니다" });
+      }
+      await (db as any).execute(`DELETE FROM tp_leave_requests WHERE id = ?`, [req.params.id]);
+      return res.json({ success: true });
+    } catch (e: unknown) {
+      return res.status(500).json({ error: String(e) });
+    }
+  });
+
+  // ─── 구글 설문지 Apps Script 웹훅 수신 ────────────────────────
+  app.post("/api/leave/google-webhook", async (req, res) => {
+    const db = getPool()!;
+    // 간단한 시크릿 토큰 검증 (Apps Script에서 헤더로 전송)
+    const secret = req.headers["x-webhook-secret"];
+    const expectedSecret = process.env.GOOGLE_WEBHOOK_SECRET || "teampulse-leave-webhook";
+    if (secret !== expectedSecret) {
+      return res.status(401).json({ error: "Invalid webhook secret" });
+    }
+    try {
+      const {
+        employee_name,
+        start_date,
+        end_date,
+        half_day,
+        leave_type,
+        manager_approved,
+      } = req.body;
+      if (!employee_name || !start_date || !end_date || !leave_type) {
+        return res.status(400).json({ error: "필수 항목 누락" });
+      }
+      // 이름으로 직원 ID 조회
+      const [empRows] = await (db as any).execute(
+        `SELECT id FROM tp_employees WHERE name = ? LIMIT 1`, [employee_name]
+      ) as [Record<string, unknown>[], unknown];
+      const employee_id = empRows.length ? empRows[0].id : null;
+      const now = Date.now();
+      const [result] = await (db as any).execute(
+        `INSERT INTO tp_leave_requests
+         (employee_id, employee_name, start_date, end_date, half_day, leave_type, manager_approved, source, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'google_form', ?, ?)`,
+        [
+          employee_id,
+          employee_name,
+          start_date,
+          end_date,
+          half_day || null,
+          leave_type,
+          manager_approved ? 1 : 0,
+          now,
+          now,
+        ]
+      ) as [{ insertId: number }, unknown];
+      return res.status(201).json({ id: result.insertId, message: "연차 신청이 접수되었습니다" });
+    } catch (e: unknown) {
+      return res.status(500).json({ error: String(e) });
+    }
+  });
+
   // ─── 정적 파일 서빙 ─────────────────────────────────────────
 
   const staticPath =
