@@ -1016,6 +1016,7 @@ const plugins = [
   vitePluginEmployeesApi(),
   vitePluginMasterDataApi(),
   vitePluginDocumentsApi(),
+  vitePluginLeaveApi(),
 ];
 
 function vitePluginMasterDataApi(): Plugin {
@@ -1147,6 +1148,110 @@ function vitePluginDocumentsApi(): Plugin {
             res.end(JSON.stringify({ success: true }));
           } else { next(); }
         } finally { await db.end(); }
+      });
+    },
+  };
+}
+
+function vitePluginLeaveApi(): Plugin {
+  return {
+    name: "vite-plugin-leave-api",
+    configureServer(server) {
+      server.middlewares.use(async (req, res, next) => {
+        const url = req.url || "";
+        const isLeaveRequests = url.startsWith("/api/leave-requests");
+        const isGoogleWebhook = url.startsWith("/api/leave/google-webhook");
+        if (!isLeaveRequests && !isGoogleWebhook) return next();
+        const { createPool } = await import("mysql2/promise");
+        const db = createPool(process.env.DATABASE_URL!);
+        const jwt = (await import("jsonwebtoken")).default;
+        const getUser = async () => {
+          const cookie = req.headers.cookie || "";
+          const match = cookie.match(/tp_auth=([^;]+)/);
+          if (!match) return null;
+          try { return jwt.verify(match[1], process.env.JWT_SECRET!) as { id: number; name: string; role: string; dept?: string }; } catch { return null; }
+        };
+        const sendJson = (code: number, data: unknown) => {
+          res.statusCode = code;
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify(data));
+        };
+        const readBody = (): Promise<Record<string, unknown>> => new Promise(resolve => {
+          let d = ""; req.on("data", c => d += c); req.on("end", () => { try { resolve(JSON.parse(d)); } catch { resolve({}); } });
+        });
+        const parsedUrl = new URL(url, "http://localhost");
+        const pathParts = parsedUrl.pathname.split("/").filter(Boolean);
+        try {
+          // ─── 구글 웹훅 (인증 불필요) ───
+          if (isGoogleWebhook && req.method === "POST") {
+            const secret = req.headers["x-webhook-secret"];
+            const expectedSecret = process.env.GOOGLE_WEBHOOK_SECRET || "teampulse-leave-webhook";
+            if (secret !== expectedSecret) { await db.end(); return sendJson(401, { error: "Invalid webhook secret" }); }
+            const body = await readBody();
+            const { employee_name, start_date, end_date, half_day, leave_type, manager_approved } = body as Record<string, string | boolean | null>;
+            if (!employee_name || !start_date || !end_date || !leave_type) { await db.end(); return sendJson(400, { error: "필수 항목 누락" }); }
+            const [empRows]: any = await db.execute("SELECT id FROM tp_employees WHERE name = ? LIMIT 1", [employee_name]);
+            const employee_id = empRows.length ? empRows[0].id : null;
+            const now = Date.now();
+            const [r]: any = await db.execute(
+              `INSERT INTO tp_leave_requests (employee_id, employee_name, start_date, end_date, half_day, leave_type, manager_approved, source, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,'google_form','대기',?,?)`,
+              [employee_id, employee_name, start_date, end_date, half_day || null, leave_type, manager_approved ? 1 : 0, now, now]
+            );
+            await db.end();
+            return sendJson(201, { id: r.insertId, message: "연차 신청이 접수되었습니다" });
+          }
+          // ─── 연차 신청 CRUD (인증 필요) ───
+          const user = await getUser();
+          if (!user) { await db.end(); return sendJson(401, { error: "Unauthorized" }); }
+          const leaveId = pathParts[2] ? parseInt(pathParts[2]) : null;
+          const isStatus = pathParts[3] === "status";
+          if (req.method === "GET" && !leaveId) {
+            let rows: any[];
+            if (user.role === "admin") {
+              const [r]: any = await db.execute(`SELECT lr.*, e.dept FROM tp_leave_requests lr LEFT JOIN tp_employees e ON lr.employee_id = e.id ORDER BY lr.created_at DESC`);
+              rows = r;
+            } else {
+              const [r]: any = await db.execute(`SELECT * FROM tp_leave_requests WHERE employee_id = ? ORDER BY created_at DESC`, [user.id]);
+              rows = r;
+            }
+            await db.end();
+            return sendJson(200, { requests: rows });
+          }
+          if (req.method === "POST" && !leaveId) {
+            const body = await readBody();
+            const { start_date, end_date, half_day, leave_type, reason } = body as Record<string, string>;
+            if (!start_date || !end_date || !leave_type) { await db.end(); return sendJson(400, { error: "필수 항목 누락" }); }
+            const now = Date.now();
+            const [r]: any = await db.execute(
+              `INSERT INTO tp_leave_requests (employee_id, employee_name, start_date, end_date, half_day, leave_type, reason, source, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,'app','대기',?,?)`,
+              [user.id, user.name, start_date, end_date, half_day || null, leave_type, reason || "", now, now]
+            );
+            await db.end();
+            return sendJson(201, { id: r.insertId, message: "신청 완료" });
+          }
+          if (req.method === "PATCH" && leaveId && isStatus) {
+            if (user.role !== "admin") { await db.end(); return sendJson(403, { error: "Forbidden" }); }
+            const body = await readBody();
+            const { status, note } = body as Record<string, string>;
+            const now = Date.now();
+            await db.execute(`UPDATE tp_leave_requests SET status = ?, note = ?, updated_at = ? WHERE id = ?`, [status, note || "", now, leaveId]);
+            await db.end();
+            return sendJson(200, { success: true });
+          }
+          if (req.method === "DELETE" && leaveId) {
+            const [rows]: any = await db.execute(`SELECT * FROM tp_leave_requests WHERE id = ?`, [leaveId]);
+            if (!rows.length) { await db.end(); return sendJson(404, { error: "Not found" }); }
+            if (user.role !== "admin" && rows[0].employee_id !== user.id) { await db.end(); return sendJson(403, { error: "Forbidden" }); }
+            await db.execute(`DELETE FROM tp_leave_requests WHERE id = ?`, [leaveId]);
+            await db.end();
+            return sendJson(200, { success: true });
+          }
+          await db.end();
+          next();
+        } catch (e) {
+          try { await db.end(); } catch {}
+          sendJson(500, { error: String(e) });
+        }
       });
     },
   };
