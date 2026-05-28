@@ -1153,6 +1153,15 @@ function vitePluginDocumentsApi(): Plugin {
   };
 }
 
+// SSE 클라이언트 맵 (개발 서버용)
+const devSseAdminClients = new Set<any>();
+function devPushLeaveNotification(data: Record<string, unknown>) {
+  const payload = `data: ${JSON.stringify(data)}\n\n`;
+  for (const client of devSseAdminClients) {
+    try { client.write(payload); } catch { devSseAdminClients.delete(client); }
+  }
+}
+
 function vitePluginLeaveApi(): Plugin {
   return {
     name: "vite-plugin-leave-api",
@@ -1161,7 +1170,27 @@ function vitePluginLeaveApi(): Plugin {
         const url = req.url || "";
         const isLeaveRequests = url.startsWith("/api/leave-requests");
         const isGoogleWebhook = url.startsWith("/api/leave/google-webhook");
-        if (!isLeaveRequests && !isGoogleWebhook) return next();
+        const isLeaveSse = url === "/api/leave/sse";
+        if (!isLeaveRequests && !isGoogleWebhook && !isLeaveSse) return next();
+        // ─── SSE 연차 알림 스트림 (관리자 전용) ───
+        if (isLeaveSse && req.method === "GET") {
+          const jwt2 = (await import("jsonwebtoken")).default;
+          const cookie = req.headers.cookie || "";
+          const match = cookie.match(/tp_auth=([^;]+)/);
+          let user: any = null;
+          if (match) { try { user = jwt2.verify(match[1], process.env.JWT_SECRET!) as any; } catch {} }
+          if (!user || user.role !== "admin") { res.statusCode = 403; res.end(); return; }
+          res.setHeader("Content-Type", "text/event-stream");
+          res.setHeader("Cache-Control", "no-cache");
+          res.setHeader("Connection", "keep-alive");
+          res.setHeader("X-Accel-Buffering", "no");
+          (res as any).flushHeaders?.();
+          res.write('data: {"type":"connected"}\n\n');
+          devSseAdminClients.add(res);
+          const hb = setInterval(() => { try { res.write(": heartbeat\n\n"); } catch { clearInterval(hb); } }, 30000);
+          req.on("close", () => { clearInterval(hb); devSseAdminClients.delete(res); });
+          return;
+        }
         const { createPool } = await import("mysql2/promise");
         const db = createPool(process.env.DATABASE_URL!);
         const jwt = (await import("jsonwebtoken")).default;
@@ -1197,6 +1226,18 @@ function vitePluginLeaveApi(): Plugin {
               `INSERT INTO tp_leave_requests (employee_id, employee_name, start_date, end_date, half_day, leave_type, manager_approved, source, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,'google_form','대기',?,?)`,
               [employee_id, employee_name, start_date, end_date, half_day || null, leave_type, manager_approved ? 1 : 0, now, now]
             );
+            // SSE로 관리자에게 실시간 알림 push
+            devPushLeaveNotification({
+              type: "new_leave_request",
+              id: r.insertId,
+              employee_name,
+              start_date,
+              end_date,
+              half_day: half_day || null,
+              leave_type,
+              source: "google_form",
+              created_at: Date.now(),
+            });
             await db.end();
             return sendJson(201, { id: r.insertId, message: "연차 신청이 접수되었습니다" });
           }

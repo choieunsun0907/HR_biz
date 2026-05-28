@@ -28,19 +28,21 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { NotificationBell } from "@/pages/AttendancePage";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLeaveNotification, useLeaveBadgeCount } from "@/hooks/useLeaveNotification";
 
 interface NavItem {
   label: string;
   icon: React.ElementType;
   href: string;
   badge?: number;
+  dynamicBadge?: "leave";
   group: string;
   adminOnly?: boolean;
 }
 
 const navItems: NavItem[] = [
   { label: "HR 대시보드", icon: LayoutDashboard, href: "/", group: "메인" },
-  { label: "근태 · 연차", icon: CalendarDays, href: "/attendance", group: "메인" },
+  { label: "근태 · 연차", icon: CalendarDays, href: "/attendance", group: "메인", dynamicBadge: "leave" },
   { label: "소통 · 협업", icon: MessageSquare, href: "/community", badge: 3, group: "메인" },
   { label: "직원 관리", icon: Users, href: "/employees", group: "관리", adminOnly: true },
   { label: "조직도", icon: Building2, href: "/org-chart", group: "관리" },
@@ -51,7 +53,7 @@ const navItems: NavItem[] = [
 
 const groups = ["메인", "관리", "시스템"];
 
-const activeRoutes = ["/", "/attendance", "/community", "/employees", "/org-chart", "/reports", "/settings"];
+const activeRoutes = ["/", "/attendance", "/community", "/employees", "/org-chart", "/reports", "/settings", "/documents"];
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -62,6 +64,11 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const { user, isAdmin, logout } = useAuth();
+
+  // SSE 구독 (관리자만) - 구글폼 연차 신청 실시간 알림
+  useLeaveNotification(isAdmin);
+  // 미처리 연차 신청 수 (사이드바 뱃지)
+  const leaveBadgeCount = useLeaveBadgeCount();
 
   const isActive = (href: string) => {
     if (href === "/") return location === "/";
@@ -77,6 +84,14 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const initials = user?.name
     ? user.name.slice(0, 2)
     : "HR";
+
+  const getBadgeCount = (item: NavItem): number | null => {
+    if (item.dynamicBadge === "leave" && isAdmin && leaveBadgeCount > 0) {
+      return leaveBadgeCount;
+    }
+    if (item.badge && item.badge > 0) return item.badge;
+    return null;
+  };
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full">
@@ -110,6 +125,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                 {items.map((item) => {
                   const active = isActive(item.href);
                   const isImplemented = activeRoutes.includes(item.href);
+                  const badgeCount = getBadgeCount(item);
                   return (
                     <Link key={item.href} href={isImplemented ? item.href : "#"}>
                       <div
@@ -134,12 +150,12 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                           )}
                         />
                         <span className="flex-1">{item.label}</span>
-                        {item.badge && (
+                        {badgeCount !== null && (
                           <span
-                            className="text-[10px] font-bold px-1.5 py-0.5 rounded-full text-white"
+                            className="text-[10px] font-bold px-1.5 py-0.5 rounded-full text-white min-w-[18px] text-center"
                             style={{ background: "var(--coral)" }}
                           >
-                            {item.badge}
+                            {badgeCount > 99 ? "99+" : badgeCount}
                           </span>
                         )}
                       </div>

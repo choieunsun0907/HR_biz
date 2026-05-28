@@ -35,6 +35,15 @@ function getUser(req: express.Request): jwt.JwtPayload | null {
   }
 }
 
+// ─── SSE 관리자 알림 ─────────────────────────────────────────
+const sseAdminClients = new Set<import("http").ServerResponse>();
+function pushLeaveNotification(data: Record<string, unknown>) {
+  const payload = `data: ${JSON.stringify(data)}\n\n`;
+  Array.from(sseAdminClients).forEach((client) => {
+    try { client.write(payload); } catch { sseAdminClients.delete(client); }
+  });
+}
+
 async function startServer() {
   const app = express();
   const server = createServer(app);
@@ -960,6 +969,27 @@ async function startServer() {
     }
   });
 
+  // ─── SSE 연차 알림 스트림 (관리자 전용) ─────────────────────
+  app.get("/api/leave/sse", async (req, res) => {
+    const user = await getUser(req);
+    if (!user || user.role !== "admin") return res.status(403).end();
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.flushHeaders();
+    res.write("data: {\"type\":\"connected\"}\n\n");
+    sseAdminClients.add(res);
+    // 30초마다 heartbeat
+    const heartbeat = setInterval(() => {
+      try { res.write(": heartbeat\n\n"); } catch { clearInterval(heartbeat); }
+    }, 30000);
+    req.on("close", () => {
+      clearInterval(heartbeat);
+      sseAdminClients.delete(res);
+    });
+  });
+
   // ─── 구글 설문지 Apps Script 웹훅 수신 ────────────────────────
   app.post("/api/leave/google-webhook", async (req, res) => {
     const db = getPool()!;
@@ -1003,6 +1033,18 @@ async function startServer() {
           now,
         ]
       ) as [{ insertId: number }, unknown];
+      // SSE로 관리자에게 실시간 알림 push
+      pushLeaveNotification({
+        type: "new_leave_request",
+        id: result.insertId,
+        employee_name,
+        start_date,
+        end_date,
+        half_day: half_day || null,
+        leave_type,
+        source: "google_form",
+        created_at: now,
+      });
       return res.status(201).json({ id: result.insertId, message: "연차 신청이 접수되었습니다" });
     } catch (e: unknown) {
       return res.status(500).json({ error: String(e) });
