@@ -32,10 +32,12 @@ export function useLeaveBadgeCount() {
   return count;
 }
 
-function setBadgeCount(count: number) {
+export function setBadgeCount(count: number) {
   globalBadgeCount = count;
   badgeListeners.forEach(fn => fn(count));
 }
+
+export { globalBadgeCount };
 
 export function useLeaveNotification(isAdmin: boolean) {
   const esRef = useRef<EventSource | null>(null);

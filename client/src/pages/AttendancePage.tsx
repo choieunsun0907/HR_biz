@@ -61,6 +61,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
+import { setBadgeCount, globalBadgeCount } from "@/hooks/useLeaveNotification";
 
 // ─── Notification Context (shared between AdminView & Header Bell) ─────────────
 
@@ -1007,24 +1008,33 @@ function AdminView() {
   });
 
   const handleApprove = async (id: number) => {
+    // 처리 전 해당 신청이 '대기' 상태인지 확인 (뱃지 감소 여부 결정)
+    const wasPending = requests.find((r) => r.id === id)?.status === "대기";
     const res = await fetch(`/api/leave-requests/${id}/status`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
       body: JSON.stringify({ status: "승인" }),
     });
-    if (res.ok) { toast.success("연차 신청을 승인했습니다"); loadRequests(); }
-    else { const e = await res.json(); toast.error("승인 실패", { description: e.error }); }
+    if (res.ok) {
+      toast.success("연차 신청을 승인했습니다");
+      if (wasPending) setBadgeCount(Math.max(0, globalBadgeCount - 1));
+      loadRequests();
+    } else { const e = await res.json(); toast.error("승인 실패", { description: e.error }); }
   };
   const handleReject = async (id: number, name: string) => {
+    const wasPending = requests.find((r) => r.id === id)?.status === "대기";
     const res = await fetch(`/api/leave-requests/${id}/status`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
       body: JSON.stringify({ status: "반려" }),
     });
-    if (res.ok) { toast.error(`${name}의 연차 신청을 반려했습니다`); loadRequests(); }
-    else { const e = await res.json(); toast.error("반려 실패", { description: e.error }); }
+    if (res.ok) {
+      toast.error(`${name}의 연차 신청을 반려했습니다`);
+      if (wasPending) setBadgeCount(Math.max(0, globalBadgeCount - 1));
+      loadRequests();
+    } else { const e = await res.json(); toast.error("반려 실패", { description: e.error }); }
   };
   const handleApproveAll = async () => {
     const pendingIds = requests.filter((r) => r.status === "대기").map((r) => r.id);
@@ -1035,6 +1045,8 @@ function AdminView() {
       body: JSON.stringify({ status: "승인" }),
     })));
     toast.success(`${pendingIds.length}건의 연차 신청을 일괄 승인했습니다`);
+    // 일괄 승인 시 대기 건수만큼 뱃지 감소
+    setBadgeCount(Math.max(0, globalBadgeCount - pendingIds.length));
     loadRequests();
   };
   const handleBulkGrant = () => {
